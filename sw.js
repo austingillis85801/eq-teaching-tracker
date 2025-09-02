@@ -1,10 +1,9 @@
-const CACHE = 'eq-teachers-v2'; // bumped from v1 -> v2
+const CACHE = 'eq-teachers-v3'; // bumped again
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE).then((cache) =>
       cache.addAll([
-        // For GitHub Pages, don’t use leading slashes.
         'manifest.webmanifest',
       ])
     )
