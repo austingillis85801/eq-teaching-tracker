@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
+  <title>EQ Teacher Tracker</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#145AFF">
+  <style>
+    :root{
+      --bg:#f7f9fc;--fg:#0b1628;--muted:#657089;--accent:#145AFF;--card:#ffffff;--red:#d44545;--green:#1d9a5b;--amber:#b97a00;
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
+    header{position:sticky;top:0;background:var(--card);border-bottom:1px solid #e5e8ef;z-index:5}
+    .wrap{max-width:1024px;margin:0 auto;padding:16px}
+    h1{font-size:20px;margin:0}
+    nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    nav button{border:1px solid #e5e8ef;background:#fff;border-radius:12px;padding:8px 12px;cursor:pointer}
+    nav button.active{background:var(--accent);border-color:var(--accent);color:#fff}
+    main{padding-bottom:64px}
+    section{display:none}
+    section.active{display:block}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    .card{background:var(--card);border:1px solid #e5e8ef;border-radius:14px;padding:12px}
+    .card h3{margin:0 0 6px 0;font-size:16px}
+    .muted{color:var(--muted);font-size:12px}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 10px;border-radius:10px;border:1px solid #ccd3e0;background:#fff;cursor:pointer}
+    .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
+    .btn.danger{border-color:var(--red);color:var(--red);background:#fff}
+    .btn.success{border-color:var(--green);color:#fff;background:#fff}
+    .btn.ghost{border-color:transparent;background:transparent}
+    input,select,textarea{font-size:16px;padding:8px;border:1px solid #ccd3e0;border-radius:10px;background:#fff}
+    table{width:100%;border-collapse:collapse}
+    th,td{padding:8px;border-bottom:1px solid #eef2f7;text-align:left}
+    .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #ccd3e0;font-size:12px}
+    .pill.green{background:#ebf7f1;border-color:#bde6cf;color:#107a47}
+    .pill.red{background:#fdecec;border-color:#f6b1b1;color:#a92d2d}
+    .pill.amber{background:#fff4e0;border-color:#ffd69a;color:#8a5a00}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:12px}
+    .sticky-tools{position:sticky;top:64px;background:var(--bg);padding:8px 0;z-index:4}
+    .small{font-size:12px}
+    .warn{color:var(--amber)}
+    .ok{color:var(--green)}
+    .error{color:var(--red)}
+    .hidden{display:none}
+  </style>
+</head>
+<body>
+<header>
+  <div class="wrap">
+    <h1>EQ Teacher Tracker</h1>
+    <div class="muted small">One teacher per lesson • 2nd & 4th Sundays • Retry after no response: 2 months • Ask cooldown: 2 months (with 6-month snooze)</div>
+    <nav id="tabs">
+      <button data-tab="nextup" class="active">Next Up</button>
+      <button data-tab="schedule">Schedule</button>
+      <button data-tab="directory">Directory</button>
+      <button data-tab="import">Import/Export</button>
+      <button data-tab="settings">Templates & Settings</button>
+      <span style="flex:1"></span>
+      <button id="signInBtn">Sign in</button>
+      <button id="signOutBtn" class="hidden">Sign out</button>
+    </nav>
+  </div>
+</header>
+<main class="wrap">
+  <section id="nextup" class="active">
+    <div class="sticky-tools">
+      <div class="row">
+        <div class="card" style="flex:1">
+          <h3>Recently asked (last 10 days)</h3>
+          <div id="recentlyAsked"></div>
+        </div>
+        <div class="card" style="flex:1">
+          <h3>Unassigned upcoming lessons (2nd & 4th Sundays)</h3>
+          <div id="unassignedList"></div>
+        </div>
+      </div>
+    </div>
+    <div class="grid" id="suggestions"></div>
+  </section>
+
+  <section id="schedule">
+    <div class="card">
+      <h3>Lesson Schedule</h3>
+      <div class="muted small">Only 2nd & 4th Sundays are expected. Others will show a ⚠ warning.</div>
+      <table id="scheduleTable">
+        <thead><tr><th>Date</th><th>Talk Title</th><th>Status</th><th>Teacher</th><th>Actions</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="directory">
+    <div class="row">
+      <div class="card" style="flex:1">
+        <div class="row" style="align-items:center;justify-content:space-between">
+          <div class="row" style="gap:8px">
+            <input id="searchInput" placeholder="Search name, email, phone digits" />
+            <select id="filterSelect">
+              <option value="all">All</option>
+              <option value="active">Active only</option>
+              <option value="hasCalling">Has calling</option>
+              <option value="bench">Bench tag</option>
+            </select>
+            <select id="sortSelect">
+              <option value="name">Name (A–Z)</option>
+              <option value="lastTaught">Last taught (oldest first)</option>
+              <option value="attempts">Attempts (recent asks first)</option>
+              <option value="lastAsked">Last asked (oldest first)</option>
+            </select>
+          </div>
+          <div class="muted small" id="dirCount"></div>
+        </div>
+        <div class="grid" id="directoryGrid"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="import">
+    <div class="grid">
+      <div class="card">
+        <h3>Import XLSX/CSV</h3>
+        <div class="muted small">Accepts your “EQ_Teacher_Tracker_Complete.xlsx” (Teacher Tracker, Lesson Schedule, Sample Message) and Elders roster file.</div>
+        <div class="row">
+          <div>
+            <label class="small">Upload Teacher Tracker workbook</label><br>
+            <input type="file" id="ttFile" accept=".xlsx,.xls,.csv"/>
+          </div>
+          <div>
+            <label class="small">Upload Elders Roster workbook</label><br>
+            <input type="file" id="rosterFile" accept=".xlsx,.xls,.csv"/>
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="importBtn">Import</button>
+          <button class="btn" id="fixDupBtn">Fix Duplicates</button>
+          <button class="btn" id="exportBtn">Export CSV</button>
+          <button class="btn" id="backupBtn">Backup JSON</button>
+        </div>
+        <div id="importLog" class="small muted" style="margin-top:8px"></div>
+      </div>
+      <div class="card">
+        <h3>Status</h3>
+        <div id="stats"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="settings">
+    <div class="grid">
+      <div class="card">
+        <h3>Text Template</h3>
+        <div class="muted small">Variables: {FirstName}, {Date}, {TalkTitle}, {MeetingTime}</div>
+        <textarea id="textTemplate" rows="6" placeholder="Enter message..."></textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="saveTemplateBtn">Save Template</button>
+          <button class="btn" id="resetTemplateBtn">Reset to Sample</button>
+        </div>
+      </div>
+      <div class="card">
+        <h3>App Settings</h3>
+        <div class="row">
+          <div>
+            <label class="small">Meeting time (display only)</label><br/>
+            <input id="meetingTime" value="11:10 AM"/>
+          </div>
+          <div>
+            <label class="small">Ask cooldown (days)</label><br/>
+            <input id="askCooldown" type="number" value="60"/>
+          </div>
+          <div>
+            <label class="small">Retry after no response (days)</label><br/>
+            <input id="retryDays" type="number" value="60"/>
+          </div>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" id="saveSettingsBtn">Save Settings</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
+  import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
+  import { initializeFirestore, persistentLocalCache, collection, doc, getDoc, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+
+  const FIREBASE_CONFIG = {
+     apiKey: "AIzaSyAhCxANql5AXYFq8Zi4tDI4Mu2b5AsejUY",
+  authDomain: "elders-teaching-assignments.firebaseapp.com",
+  projectId: "elders-teaching-assignments",
+  };
+
+  const app = initializeApp(FIREBASE_CONFIG);
+  const auth = getAuth(app);
+  const db = initializeFirestore(app, { localCache: persistentLocalCache() });
+
+  const $ = s=>document.querySelector(s);
+  const $$ = s=>Array.from(document.querySelectorAll(s));
+
+  function fmtDate(d){ if(!d) return ""; const dt=(d instanceof Date)?d:new Date(d); return dt.toISOString().slice(0,10); }
+  function daysSince(d){ if(!d) return 9999; const dt=(d instanceof Date)?d:new Date(d); return Math.floor((Date.now()-dt.getTime())/86400000); }
+  function phoneDigits(p){ return (p||"").replace(/\D+/g,""); }
+  function keyFrom(name,email,phone){ return [phoneDigits(phone), String(email||"").toLowerCase().trim(), String(name||"").toLowerCase().trim()].join("|"); }
+  function isSecondOrFourthSunday(iso){
+    const d = new Date(iso+"T12:00:00");
+    if(d.getDay()!==0) return false;
+    const day=d.getDate();
+    const first=new Date(d.getFullYear(), d.getMonth(), 1);
+    const firstSun=1+((7-first.getDay())%7);
+    const n=Math.floor((day-firstSun)/7)+1;
+    return (n===2 || n===4);
+  }
+
+  let currentUser=null;
+  let settings={
+    meetingDay:"Sunday",
+    meetingTime:"11:10 AM",
+    askCooldownDays:60,
+    retryNoResponseDays:60,
+    textTemplate:"Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!"
+  };
+
+  $$("#tabs button[data-tab]").forEach(b=>b.addEventListener("click",()=>{
+    $$("#tabs button").forEach(x=>x.classList.remove("active"));
+    b.classList.add("active");
+    const tab=b.dataset.tab;
+    $$("main section").forEach(s=>s.classList.remove("active"));
+    $("#"+tab).classList.add("active");
+  }));
+
+  $("#signInBtn").addEventListener("click", async()=>{
+    const email=prompt("Email:");
+    const pass=prompt("Password:");
+    if(!email||!pass) return;
+    try{ await signInWithEmailAndPassword(auth,email,pass); }catch(e){ alert("Sign-in failed: "+e.message); }
+  });
+  $("#signOutBtn").addEventListener("click", ()=>signOut(auth));
+
+  import { getDoc as gD } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+  function colTeachers(){ return collection(db,"users",currentUser.uid,"teachers"); }
+  function colAssignments(){ return collection(db,"users",currentUser.uid,"assignments"); }
+  function docSettings(){ return doc(db,"users",currentUser.uid,"settings","app"); }
+
+  async function loadSettings(){
+    const snap=await getDoc(docSettings());
+    if(snap.exists()) settings=Object.assign(settings,snap.data());
+    $("#textTemplate").value=settings.textTemplate;
+    $("#meetingTime").value=settings.meetingTime;
+    $("#askCooldown").value=settings.askCooldownDays;
+    $("#retryDays").value=settings.retryNoResponseDays;
+  }
+  $("#saveTemplateBtn").addEventListener("click", async()=>{
+    settings.textTemplate=$("#textTemplate").value.trim();
+    await setDoc(docSettings(), settings, {merge:true});
+    alert("Template saved.");
+  });
+  $("#resetTemplateBtn").addEventListener("click", async()=>{
+    settings.textTemplate="Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!";
+    $("#textTemplate").value=settings.textTemplate;
+    await setDoc(docSettings(), settings, {merge:true});
+  });
+  $("#saveSettingsBtn").addEventListener("click", async()=>{
+    settings.meetingTime=$("#meetingTime").value.trim();
+    settings.askCooldownDays=parseInt($("#askCooldown").value,10)||60;
+    settings.retryNoResponseDays=parseInt($("#retryDays").value,10)||60;
+    await setDoc(docSettings(), settings, {merge:true});
+    alert("Settings saved.");
+    renderAll();
+  });
+
+  import { getDocs as gDs } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+  async function fetchTeachers(){ const arr=[]; const snap=await gDs(colTeachers()); snap.forEach(d=>arr.push({id:d.id, ...d.data()})); return arr; }
+  async function fetchAssignments(){ const arr=[]; const snap=await gDs(colAssignments()); snap.forEach(d=>arr.push({id:d.id, ...d.data()})); return arr.sort((a,b)=>a.date.localeCompare(b.date)); }
+
+  function eligibleTeacher(t){
+    if(!t.active) return false;
+    if(t.hasCalling) return false;
+    if(t.willingToTeachAgain===false) return false;
+    if(t.snoozeUntil){
+      const s=t.snoozeUntil.toDate ? t.snoozeUntil.toDate() : new Date(t.snoozeUntil);
+      if(s > new Date()) return false;
+    }
+    const cool=settings.askCooldownDays;
+    if(t.lastAsked){
+      const la=t.lastAsked.toDate? t.lastAsked.toDate(): new Date(t.lastAsked);
+      if(daysSince(la) < cool) return false;
+    }
+    return true;
+  }
+
+  function teacherScore(t, meetingIso){
+    let score=0;
+    const never=!t.lastTaught;
+    score += never ? 180 : daysSince(t.lastTaught?.toDate? t.lastTaught.toDate(): t.lastTaught);
+    score += (t.attemptsSinceLastTaught||0)*2;
+    if(t.tags && t.tags.includes("Bench")){
+      const daysTo=Math.floor((new Date(meetingIso).getTime()-Date.now())/86400000);
+      if(daysTo<=7) score += 15;
+    }
+    return score;
+  }
+
+  async function renderNextUp(){
+    const [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
+    const recent = teachers
+      .map(t=>({t, ds: t.lastAsked ? daysSince(t.lastAsked.toDate? t.lastAsked.toDate():t.lastAsked):9999}))
+      .filter(x=>x.ds<=10).sort((a,b)=>a.ds-b.ds).slice(0,30);
+    $("#recentlyAsked").innerHTML = recent.length ? recent.map(x=>{
+      const t=x.t;
+      return `<div class="row" style="align-items:center;justify-content:space-between;border-bottom:1px dashed #eef2f7;padding:6px 0">
+        <div><b>${t.name||"(No name)"}:</b> asked ${x.ds}d ago</div>
+        <div class="row">
+          <button class="btn" onclick="markResponse('${t.id}','Accepted')">Confirm</button>
+          <button class="btn" onclick="markResponse('${t.id}','Declined')">Declined</button>
+          <button class="btn danger" onclick="markResponse('${t.id}','NoResponse')">No response</button>
+        </div>
+      </div>`;
+    }).join("") : `<div class="muted small">No one asked in the last 10 days.</div>`;
+
+    const upcoming = assignments.filter(a=> isSecondOrFourthSunday(a.date) && (a.status==="Unassigned" || !a.teacherIds || a.teacherIds.length===0)).slice(0,8);
+    $("#unassignedList").innerHTML = upcoming.length ? upcoming.map(a=>{
+      return `<div class="row" style="align-items:center;justify-content:space-between;border-bottom:1px dashed #eef2f7;padding:6px 0">
+        <div><b>${a.date}</b> — ${a.talkTitle||"(No title)"} </div>
+        <div><button class="btn primary" onclick="suggestTeacherFor('${a.id}','${a.date}')">Suggest teacher</button></div>
+      </div>`;
+    }).join("") : `<div class="muted small">No unassigned 2nd/4th Sundays found.</div>`;
+
+    const next = upcoming[0];
+    if(!next){ $("#suggestions").innerHTML=""; return; }
+    const elig=teachers.filter(eligibleTeacher);
+    elig.sort((a,b)=> teacherScore(b, next.date) - teacherScore(a, next.date));
+    const top=elig.slice(0,6);
+    $("#suggestions").innerHTML = top.map(t=>{
+      const lastT=t.lastTaught? fmtDate(t.lastTaught?.toDate ? t.lastTaught.toDate(): t.lastTaught) : "—";
+      const lastA=t.lastAsked? fmtDate(t.lastAsked?.toDate ? t.lastAsked.toDate(): t.lastAsked) : "—";
+      const bench=(t.tags||[]).includes("Bench")? `<span class="pill green">Bench</span>`:"";
+      return `<div class="card">
+        <h3>${t.name||"(No name)"} ${bench}</h3>
+        <div class="muted small">Last taught: ${lastT} • Last asked: ${lastA}</div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn primary" onclick="askTeacher('${t.id}','${next.id}')">Ask for ${next.date}</button>
+          <button class="btn" onclick="toggleHasCalling('${t.id}', true)">Has calling</button>
+          <button class="btn" onclick="snoozeSixMonths('${t.id}')">Snooze 6mo</button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+
+  async function renderSchedule(){
+    const [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
+    const tMap=new Map(teachers.map(t=>[t.id,t]));
+    const tbody=$("#scheduleTable tbody"); tbody.innerHTML="";
+    for(const a of assignments){
+      const names=(a.teacherIds||[]).map(id=> tMap.get(id)?.name || id);
+      const warn=isSecondOrFourthSunday(a.date)? "": "<span class='pill amber'>⚠</span>";
+      const tr=document.createElement("tr");
+      tr.innerHTML = `
+        <td>${a.date} ${warn}</td>
+        <td>${a.talkTitle||""}</td>
+        <td>${a.status||"Unassigned"}</td>
+        <td>${names.join(", ")||"—"}</td>
+        <td>
+          <button class="btn" onclick="quickAssign('${a.id}')">Suggest</button>
+          <button class="btn" onclick="markAssignmentCompleted('${a.id}')">Mark completed</button>
+        </td>`;
+      tbody.appendChild(tr);
+    }
+  }
+
+  async function renderDirectory(){
+    const teachers=await fetchTeachers();
+    const q=$("#searchInput").value.trim().toLowerCase();
+    const filter=$("#filterSelect").value;
+    const sort=$("#sortSelect").value;
+    let arr=teachers.slice();
+    arr = arr.filter(t=>{
+      if(filter==="active" && !t.active) return false;
+      if(filter==="hasCalling" && !t.hasCalling) return false;
+      if(filter==="bench" && !(t.tags||[]).includes("Bench")) return false;
+      const hay=[t.name||"", t.email||"", phoneDigits(t.phone||"")].join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+    arr.sort((a,b)=>{
+      if(sort==="name") return (a.name||"").localeCompare(b.name||"");
+      if(sort==="lastTaught") return daysSince(a.lastTaught?.toDate? a.lastTaught.toDate():a.lastTaught||0) - daysSince(b.lastTaught?.toDate? b.lastTaught.toDate():b.lastTaught||0);
+      if(sort==="attempts") return (b.attemptsSinceLastTaught||0)-(a.attemptsSinceLastTaught||0);
+      if(sort==="lastAsked") return daysSince(a.lastAsked?.toDate? a.lastAsked.toDate():a.lastAsked||0) - daysSince(b.lastAsked?.toDate? b.lastAsked.toDate():b.lastAsked||0);
+      return 0;
+    });
+    $("#dirCount").textContent=`${arr.length} teachers`;
+    $("#directoryGrid").innerHTML = arr.map(t=>{
+      const lastT=t.lastTaught? fmtDate(t.lastTaught?.toDate? t.lastTaught.toDate(): t.lastTaught):"—";
+      const lastA=t.lastAsked? fmtDate(t.lastAsked?.toDate? t.lastAsked.toDate(): t.lastAsked):"—";
+      const bench=(t.tags||[]).includes("Bench")? `<span class="pill green">Bench</span>`:"";
+      const calling=t.hasCalling? `<span class="pill amber">Has calling</span>`:"";
+      const willing=(t.willingToTeachAgain===false)? `<span class="pill red">Not willing</span>`:"";
+      return `<div class="card">
+        <h3>${t.name||"(No name)"} ${bench} ${calling} ${willing}</h3>
+        <div class="muted small">Last taught: ${lastT} • Last asked: ${lastA}</div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn" onclick="openAskForTeacher('${t.id}')">Ask…</button>
+          <button class="btn" onclick="toggleHasCalling('${t.id}', ${!t.hasCalling})">${t.hasCalling?"Clear calling":"Has calling"}</button>
+          <button class="btn" onclick="toggleBench('${t.id}', ${!(t.tags||[]).includes("Bench")})">${(t.tags||[]).includes("Bench")?"Remove Bench":"Add Bench"}</button>
+          <button class="btn" onclick="snoozeSixMonths('${t.id}')">Snooze 6mo</button>
+        </div>
+      </div>`;
+    }).join("");
+  }
+  $("#searchInput").addEventListener("input", renderDirectory);
+  $("#filterSelect").addEventListener("change", renderDirectory);
+  $("#sortSelect").addEventListener("change", renderDirectory);
+
+  async function renderAll(){ await Promise.all([renderNextUp(), renderSchedule(), renderDirectory()]); }
+
+  window.toggleHasCalling = async(id,val)=>{ await setDoc(doc(colTeachers(),id), {hasCalling:!!val}, {merge:true}); renderAll(); };
+  window.toggleBench = async(id,add)=>{
+    const dref=doc(colTeachers(),id); const snap=await gD(dref); if(!snap.exists()) return;
+    const t=snap.data(); const tags=new Set(t.tags||[]); if(add) tags.add("Bench"); else tags.delete("Bench");
+    await setDoc(dref, {tags:Array.from(tags)}, {merge:true}); renderAll();
+  };
+  window.snoozeSixMonths = async(id)=>{
+    const d=new Date(); const snoozeUntil=new Date(d.getTime()+180*86400000);
+    await setDoc(doc(colTeachers(),id), {snoozeUntil}, {merge:true}); alert("Snoozed for 6 months."); renderAll();
+  };
+
+  function buildSmsBody(name,dateIso,title){
+    return settings.textTemplate
+      .replaceAll("{FirstName}", (name||"").split(" ")[0])
+      .replaceAll("{Date}", dateIso)
+      .replaceAll("{TalkTitle}", title||"")
+      .replaceAll("{MeetingTime}", settings.meetingTime||"");
+  }
+
+  import { updateDoc as uD } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+  window.askTeacher = async(teacherId, assignmentId)=>{
+    const aSnap = await gD(doc(colAssignments(), assignmentId)); if(!aSnap.exists()) return alert("Assignment not found.");
+    const a=aSnap.data(); const tSnap=await gD(doc(colTeachers(), teacherId)); if(!tSnap.exists()) return alert("Teacher not found.");
+    const t=tSnap.data(); const now=new Date();
+    await setDoc(doc(colTeachers(), teacherId), { lastAsked: now, attemptsSinceLastTaught: (t.attemptsSinceLastTaught||0)+1, noResponseFlag:false }, {merge:true});
+    await setDoc(doc(colAssignments(), assignmentId), { status:"Asked", askedAt: now, teacherIds:[teacherId], teacherNames:[t.name||teacherId] }, {merge:true});
+    const body=encodeURIComponent(buildSmsBody(t.name, a.date, a.talkTitle)); const phone=phoneDigits(t.phone||"");
+    const smsHref = phone ? `sms:${phone}?&body=${body}` : `sms:?&body=${body}`; window.location.href=smsHref; renderAll();
+  };
+
+  window.openAskForTeacher = async(teacherId)=>{
+    const assigns=await fetchAssignments();
+    const target=assigns.find(x=> isSecondOrFourthSunday(x.date) && (x.status==="Unassigned" || !x.teacherIds || x.teacherIds.length===0));
+    if(!target) return alert("No unassigned lesson found."); await askTeacher(teacherId, target.id);
+  };
+
+  window.markResponse = async(teacherId, type)=>{
+    const now=new Date(); const dref=doc(colTeachers(), teacherId); const snap=await gD(dref); if(!snap.exists()) return;
+    const assigns=await fetchAssignments(); const a=assigns.find(x=> (x.teacherIds||[]).includes(teacherId) && (x.status==="Asked" || x.status==="Confirmed"));
+    if(type==="Accepted"){ if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Confirmed", confirmedAt:now}, {merge:true}); } }
+    else if(type==="Declined"){
+      if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Unassigned", teacherIds:[], teacherNames:[], askedAt:null, confirmedAt:null}, {merge:true}); }
+      await setDoc(dref, { lastAsked: now }, {merge:true});
+    }
+    else if(type==="NoResponse"){
+      await setDoc(dref, { noResponseFlag:true, noResponseAt:now }, {merge:true});
+      if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Unassigned", teacherIds:[], teacherNames:[], askedAt:null, confirmedAt:null}, {merge:true}); }
+    }
+    renderAll();
+  };
+
+  window.quickAssign = async(assignmentId)=>{
+    const aSnap=await gD(doc(colAssignments(), assignmentId)); if(!aSnap.exists()) return;
+    const a=aSnap.data(); const teachers=await fetchTeachers();
+    const elig=teachers.filter(t=>eligibleTeacher(t)); elig.sort((x,y)=> teacherScore(y, a.date) - teacherScore(x, a.date));
+    const t=elig[0]; if(!t) return alert("No eligible teachers right now.");
+    await setDoc(doc(colAssignments(), assignmentId), { teacherIds:[t.id], teacherNames:[t.name||t.id], status:"Asked", askedAt:new Date() }, {merge:true});
+    alert("Assigned (Asked): "+(t.name||t.id)); renderAll();
+  };
+
+  window.markAssignmentCompleted = async(assignmentId)=>{
+    const now=new Date(); const aSnap=await gD(doc(colAssignments(), assignmentId)); if(!aSnap.exists()) return;
+    const a=aSnap.data(); const teacherId=(a.teacherIds||[])[0]; if(!teacherId) return alert("No teacher on this assignment.");
+    await setDoc(doc(colAssignments(), assignmentId), { status:"Completed" }, {merge:true});
+    await setDoc(doc(colTeachers(), teacherId), { lastTaught: now, attemptsSinceLastTaught:0 }, {merge:true});
+    alert("Marked completed and reset attempts."); renderAll();
+  };
+
+  onAuthStateChanged(auth, async(u)=>{
+    currentUser=u; $("#signInBtn").classList.toggle("hidden",!!u); $("#signOutBtn").classList.toggle("hidden",!u);
+    if(u){ await loadSettings(); renderAll(); }
+    else{
+      $("#recentlyAsked").innerHTML=""; $("#unassignedList").innerHTML=""; $("#suggestions").innerHTML="";
+      $("#scheduleTable tbody").innerHTML=""; $("#directoryGrid").innerHTML="";
+    }
+  });
+
+  // Import/Export handlers
+  function parseDateFlexible(v){
+    if(!v) return null;
+    if(v instanceof Date) return v;
+    if(typeof v === "number"){ return new Date(Math.round((v-25569)*86400)*1000); }
+    const s=String(v).trim(); const d=new Date(s); return isNaN(d)? null : d;
+  }
+
+  async function importTT(obj){
+    const sheets=obj.sheets;
+    const teacherSheet=sheets["Teacher Tracker"] || sheets["TeacherTracker"] || sheets["Teachers"] || sheets["Sheet1"] || [];
+    const scheduleSheet=sheets["Lesson Schedule"] || sheets["Schedule"] || [];
+    const msgSheet=sheets["Sample Message"] || sheets["Message"] || [];
+    let imported={teachers:0, assignments:0, template:false};
+    if(msgSheet && msgSheet.length){
+      const row=msgSheet.find(r=>r.Message)||msgSheet[0];
+      if(row && row.Message){
+        settings.textTemplate=String(row.Message).trim();
+        await setDoc(docSettings(), settings, {merge:true});
+        $("#textTemplate").value=settings.textTemplate;
+        imported.template=true;
+      }
+    }
+    for(const r of teacherSheet){
+      const name=r["Name"] ?? r["PreferredName"] ?? r["Full Name"]; if(!name) continue;
+      const email=r["Email"] ?? r["E-mail"] ?? "";
+      const phone=r["Phone"] ?? r["Phone Number"] ?? "";
+      const lastAsked=parseDateFlexible(r["Last Asked"]);
+      const lastTaught=parseDateFlexible(r["Taught Date"]);
+      const willingRaw=(r["Willing to Teach Again?"] ?? r["Willing"] ?? "").toString().toLowerCase();
+      const willing = (willingRaw.includes("yes")||willingRaw.includes("true"))? true :
+                      (willingRaw.includes("no")||willingRaw.includes("false"))? false : null;
+      const notes=r["Notes"] ?? "";
+      const id=keyFrom(name,email,phone);
+      await setDoc(doc(colTeachers(), id), {
+        name,email,phone,address:r["Address"]??"",
+        active:true,hasCalling:false,willingToTeachAgain:willing,
+        lastAsked: lastAsked? lastAsked:null,
+        lastTaught: lastTaught? lastTaught:null,
+        attemptsSinceLastTaught: r["Attempts"]? Number(r["Attempts"])||0:0,
+        responseHistory: [],
+        notes, tags: (r["Tags"]? String(r["Tags"]).split(",").map(s=>s.trim()).filter(Boolean):[])
+      }, {merge:true});
+      imported.teachers++;
+    }
+    for(const r of scheduleSheet){
+      const date=parseDateFlexible(r["Date"]); if(!date) continue;
+      const iso=fmtDate(date); const talkTitle=r["Talk Title"] ?? r["Title"] ?? "";
+      const teacherAssigned=r["Teacher Assigned"] ?? "";
+      const teacherConfirmed=String(r["Teacher Confirmed?"] ?? "").toLowerCase().startsWith("y");
+      const status=teacherAssigned ? (teacherConfirmed ? "Confirmed" : "Asked") : "Unassigned";
+      const assignId=iso;
+      await setDoc(doc(colAssignments(), assignId), {
+        date:iso, talkTitle,
+        teacherIds: teacherAssigned ? [keyFrom(teacherAssigned,"","")] : [],
+        teacherNames: teacherAssigned ? [teacherAssigned] : [],
+        status, askedAt:null, confirmedAt:null, notes:r["Notes"] ?? ""
+      }, {merge:true});
+      imported.assignments++;
+    }
+    return imported;
+  }
+
+  function readFile(file){
+    return new Promise((resolve,reject)=>{
+      const name=file.name.toLowerCase(); const reader=new FileReader();
+      reader.onload=()=>{
+        const data=reader.result;
+        if(name.endsWith(".csv")){
+          const res=Papa.parse(data,{header:true,skipEmptyLines:true});
+          resolve({type:"csv", sheets:{Sheet1:res.data}});
+        } else {
+          const wb=XLSX.read(data,{type:"array"}); const sheets={};
+          wb.SheetNames.forEach(sn=> sheets[sn]=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:null}));
+          resolve({type:"xlsx", sheets});
+        }
+      };
+      if(name.endsWith(".csv")) reader.readAsText(file); else reader.readAsArrayBuffer(file);
+    });
+  }
+
+  async function importRoster(obj){
+    const sheets=obj.sheets;
+    const any=sheets["Sheet2"] || sheets["Roster"] || sheets["Sheet1"] || [];
+    let imported=0;
+    for(const r of any){
+      const name=r["Name"] ?? r["PreferredName"] ?? r["Full Name"]; if(!name) continue;
+      const email=r["Email"] ?? r["E-mail"] ?? "";
+      const phone=r["Phone"] ?? r["Phone Number"] ?? "";
+      const id=keyFrom(name,email,phone);
+      await setDoc(doc(colTeachers(), id), { name,email,phone,address:r["Address"] ?? "", active:true }, {merge:true});
+      imported++;
+    }
+    return {imported};
+  }
+
+  $("#importBtn").addEventListener("click", async()=>{
+    if(!currentUser) return alert("Sign in first.");
+    const ttF=$("#ttFile").files[0]; const roF=$("#rosterFile").files[0];
+    $("#importLog").textContent="Reading files...";
+    try{
+      if(ttF){ const data=await readFile(ttF); const res=await importTT(data); $("#importLog").textContent="Imported Teacher Tracker: "+JSON.stringify(res); }
+      if(roF){ const data2=await readFile(roF); const res2=await importRoster(data2); $("#importLog").textContent += "\nImported Roster: "+JSON.stringify(res2); }
+      renderAll();
+    }catch(e){ $("#importLog").textContent="Import error: "+e.message; }
+  });
+
+  $("#fixDupBtn").addEventListener("click", ()=> alert("Duplicates prevented via deterministic IDs."));
+  $("#exportBtn").addEventListener("click", async()=>{
+    if(!currentUser) return alert("Sign in first.");
+    const rows=[]; const snap=await gDs(colTeachers());
+    snap.forEach(d=>{
+      const t=d.data();
+      rows.push({
+        Name:t.name, Email:t.email, Phone:t.phone, Address:t.address, Active:t.active,
+        HasCalling:t.hasCalling, WillingToTeachAgain:t.willingToTeachAgain,
+        LastAsked: t.lastAsked? fmtDate(t.lastAsked.toDate? t.lastAsked.toDate(): t.lastAsked):"",
+        LastTaught: t.lastTaught? fmtDate(t.lastTaught.toDate? t.lastTaught.toDate(): t.lastTaught):"",
+        Attempts: t.attemptsSinceLastTaught||0, Notes:t.notes||"", Tags:(t.tags||[]).join(",")
+      });
+    });
+    const csv=Papa.unparse(rows); const blob=new Blob([csv],{type:"text/csv"}); const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob); a.download="teachers_export.csv"; a.click();
+  });
+  $("#backupBtn").addEventListener("click", async()=>{
+    if(!currentUser) return alert("Sign in first.");
+    const teachers=[]; const tSnap=await gDs(colTeachers()); tSnap.forEach(d=>teachers.push({id:d.id,...d.data()}));
+    const assigns=[]; const aSnap=await gDs(colAssignments()); aSnap.forEach(d=>assigns.push({id:d.id,...d.data()}));
+    const payload=JSON.stringify({settings, teachers, assignments:assigns}, null, 2);
+    const blob=new Blob([payload],{type:"application/json"}); const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob); a.download="backup.json"; a.click();
+  });
+
+  if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+</script>
+</body>
+</html>
