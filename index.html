@@ -7,9 +7,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <meta name="theme-color" content="#145AFF">
   <style>
-    :root{
-      --bg:#f7f9fc;--fg:#0b1628;--muted:#657089;--accent:#145AFF;--card:#ffffff;--red:#d44545;--green:#1d9a5b;--amber:#b97a00;
-    }
+    :root{ --bg:#f7f9fc;--fg:#0b1628;--muted:#657089;--accent:#145AFF;--card:#ffffff;--red:#d44545;--green:#1d9a5b;--amber:#b97a00; }
     *{box-sizing:border-box}
     html,body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Inter,Arial,sans-serif}
     header{position:sticky;top:0;background:var(--card);border-bottom:1px solid #e5e8ef;z-index:5}
@@ -40,7 +38,7 @@
     .small{font-size:12px}
     .hidden{display:none}
 
-    /* --- Teacher Picker Modal --- */
+    /* Teacher Picker Modal */
     .overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:50}
     .modal{width:min(720px,92vw);background:#fff;border:1px solid #e5e8ef;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.15);}
     .modal .hd{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #eef2f7}
@@ -48,7 +46,6 @@
     .list{max-height:60vh;overflow:auto}
     .item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed #eef2f7}
     .item .meta{font-size:12px;color:#657089}
-    /* ensure hidden actually hides modal */
     .overlay.hidden{display:none!important;}
   </style>
 </head>
@@ -64,6 +61,8 @@
       <button data-tab="import">Import/Export</button>
       <button data-tab="settings">Templates & Settings</button>
       <span style="flex:1"></span>
+      <span id="userBadge" class="muted small hidden" style="align-self:center"></span>
+      <button id="signUpBtn">Create account</button>
       <button id="signInBtn">Sign in</button>
       <button id="signOutBtn" class="hidden">Sign out</button>
     </nav>
@@ -182,13 +181,10 @@
 <!-- Firebase (v10, ESM modules) -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
-  import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
-  import {
-    initializeFirestore, persistentLocalCache,
-    collection, doc, getDoc, getDocs, setDoc
-  } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+  import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
+  import { initializeFirestore, persistentLocalCache, collection, doc, getDoc, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
-  /* ==== YOUR FIREBASE CONFIG (from console) ==== */
+  /* ==== YOUR FIREBASE CONFIG ==== */
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyAhCxANql5AXYFq8Zi4tDI4Mu2b5AsejUY",
     authDomain: "elders-teaching-assignments.firebaseapp.com",
@@ -205,8 +201,8 @@
   const db   = initializeFirestore(app, { localCache: persistentLocalCache() });
 
   // Helpers
-  const $ = s=>document.querySelector(s);
-  const $$ = s=>Array.from(document.querySelectorAll(s));
+  const $  = (s)=>document.querySelector(s);
+  const $$ = (s)=>Array.from(document.querySelectorAll(s));
   function fmtDate(d){ if(!d) return ""; const dt=(d instanceof Date)?d:new Date(d); return dt.toISOString().slice(0,10); }
   function daysSince(d){ if(!d) return 9999; const dt=(d instanceof Date)?d:new Date(d); return Math.floor((Date.now()-dt.getTime())/86400000); }
   function phoneDigits(p){ return (p||"").replace(/\D+/g,""); }
@@ -229,16 +225,42 @@
     $("#"+tab).classList.add("active");
   }));
 
-  // Auth
+  // Auth UI buttons
   $("#signInBtn").addEventListener("click", async ()=>{
-    const email = prompt("Email:"); const pass = prompt("Password:");
+    const email = prompt("Email to sign in:");
+    const pass  = prompt("Password:");
     if(!email||!pass) return;
-    try{ await signInWithEmailAndPassword(auth, email, pass); }catch(e){ alert("Sign-in failed: "+e.message); }
+    try{
+      await signInWithEmailAndPassword(auth, email.trim(), pass);
+    }catch(e){
+      alert("Sign-in failed: " + (e?.message||e));
+      console.error(e);
+    }
   });
-  $("#signOutBtn").addEventListener("click", ()=>signOut(auth));
+
+  $("#signUpBtn").addEventListener("click", async ()=>{
+    const email = prompt("Create account — email:");
+    const pass  = prompt("Create account — password:");
+    if(!email||!pass) return;
+    try{
+      await createUserWithEmailAndPassword(auth, email.trim(), pass);
+      alert("Account created. You're now signed in.");
+      // Make sure settings doc exists
+      await setDoc(doc(db,"users",auth.currentUser.uid,"settings","app"), {
+        meetingDay:"Sunday", meetingTime:"11:10 AM",
+        askCooldownDays:60, retryNoResponseDays:60,
+        textTemplate:"Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!"
+      }, {merge:true});
+    }catch(e){
+      alert("Create account failed: " + (e?.message||e));
+      console.error(e);
+    }
+  });
+
+  $("#signOutBtn").addEventListener("click", ()=>signOut(auth).catch(console.error));
 
   // State & refs
-  let currentUser=null;
+  let currentUser = null;
   let settings={
     meetingDay:"Sunday",
     meetingTime:"11:10 AM",
@@ -254,37 +276,28 @@
   async function loadSettings(){
     const snap=await getDoc(docSettings());
     if(snap.exists()) settings=Object.assign(settings,snap.data());
-    $("#textTemplate").value=settings.textTemplate;
-    $("#meetingTime").value=settings.meetingTime;
-    $("#askCooldown").value=settings.askCooldownDays;
-    $("#retryDays").value=settings.retryNoResponseDays;
+    $("#textTemplate")?.value = settings.textTemplate;
+    $("#meetingTime")?.value  = settings.meetingTime;
+    $("#askCooldown")?.value  = settings.askCooldownDays;
+    $("#retryDays")?.value    = settings.retryNoResponseDays;
   }
-  $("#saveTemplateBtn").addEventListener("click", async()=>{
-    settings.textTemplate=$("#textTemplate").value.trim();
-    await setDoc(docSettings(), settings, {merge:true});
-    alert("Template saved.");
-  });
-  $("#resetTemplateBtn").addEventListener("click", async()=>{
-    settings.textTemplate="Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!";
-    $("#textTemplate").value=settings.textTemplate;
-    await setDoc(docSettings(), settings, {merge:true});
-  });
-  $("#saveSettingsBtn").addEventListener("click", async()=>{
-    settings.meetingTime=$("#meetingTime").value.trim();
-    settings.askCooldownDays=parseInt($("#askCooldown").value,10)||60;
-    settings.retryNoResponseDays=parseInt($("#retryDays").value,10)||60;
-    await setDoc(docSettings(), settings, {merge:true});
-    alert("Settings saved.");
-    renderAll();
-  });
 
-  // Auth listener
-  onAuthStateChanged(auth, async(u)=>{
+  // Auth listener (this is what flips the UI)
+  onAuthStateChanged(auth, async (u)=>{
     currentUser=u||null;
+
+    // Badge + buttons
+    $("#userBadge").textContent = u ? `Signed in as ${u.email||u.uid}` : "";
+    $("#userBadge").classList.toggle("hidden", !u);
     $("#signInBtn").classList.toggle("hidden", !!u);
+    $("#signUpBtn").classList.toggle("hidden",  !!u);
     $("#signOutBtn").classList.toggle("hidden", !u);
-    if(u){ await loadSettings(); renderAll(); }
-    else{
+
+    if(u){
+      await loadSettings();
+      await renderAll();
+    }else{
+      // clear screens when signed out
       $("#recentlyAsked").innerHTML="";
       $("#unassignedList").innerHTML="";
       $("#suggestions").innerHTML="";
@@ -293,7 +306,27 @@
     }
   });
 
-  // Import/Export helpers
+  // Settings save buttons (found in Templates & Settings tab)
+  document.addEventListener("click",(e)=>{
+    if(e.target?.id==="saveTemplateBtn"){
+      settings.textTemplate=$("#textTemplate").value.trim();
+      setDoc(docSettings(), settings, {merge:true}).then(()=>alert("Template saved."));
+    }
+    if(e.target?.id==="resetTemplateBtn"){
+      settings.textTemplate="Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!";
+      $("#textTemplate").value=settings.textTemplate;
+      setDoc(docSettings(), settings, {merge:true});
+    }
+    if(e.target?.id==="saveSettingsBtn"){
+      settings.meetingTime=$("#meetingTime").value.trim();
+      settings.askCooldownDays=parseInt($("#askCooldown").value,10)||60;
+      settings.retryNoResponseDays=parseInt($("#retryDays").value,10)||60;
+      setDoc(docSettings(), settings, {merge:true}).then(()=>alert("Settings saved."));
+      renderAll();
+    }
+  });
+
+  // Import helpers
   function parseDateFlexible(v){
     if(!v) return null;
     if(v instanceof Date) return v;
@@ -331,7 +364,6 @@
       if(row && row.Message){
         settings.textTemplate=String(row.Message).trim();
         await setDoc(docSettings(), settings, {merge:true});
-        $("#textTemplate").value=settings.textTemplate;
         imported.template=true;
       }
     }
@@ -399,7 +431,7 @@
       if(ttF){ const data=await readFile(ttF); const res=await importTT(data); $("#importLog").textContent="Imported Teacher Tracker: "+JSON.stringify(res); }
       if(roF){ const data2=await readFile(roF); const res2=await importRoster(data2); $("#importLog").textContent += "\nImported Roster: "+JSON.stringify(res2); }
       renderAll();
-    }catch(e){ $("#importLog").textContent="Import error: "+e.message; }
+    }catch(e){ $("#importLog").textContent="Import error: "+e.message; console.error(e); }
   });
   $("#fixDupBtn").addEventListener("click", ()=> alert("Duplicates prevented via deterministic IDs."));
   $("#exportBtn").addEventListener("click", async()=>{
@@ -429,11 +461,11 @@
     a.href=URL.createObjectURL(blob); a.download="backup.json"; a.click();
   });
 
-  // Data fetch
-  async function fetchTeachers(){ const arr=[]; const snap=await getDocs(colTeachers()); snap.forEach(d=>arr.push({id:d.id, ...d.data()})); return arr; }
-  async function fetchAssignments(){ const arr=[]; const snap=await getDocs(colAssignments()); snap.forEach(d=>arr.push({id:d.id, ...d.data()})); return arr.sort((a,b)=>a.date.localeCompare(b.date)); }
+  // Data fetchers
+  async function fetchTeachers(){ const arr=[]; const snap=await getDocs(colTeachers()); snap.forEach(d=>arr.push({id:d.id,...d.data()})); return arr; }
+  async function fetchAssignments(){ const arr=[]; const snap=await getDocs(colAssignments()); snap.forEach(d=>arr.push({id:d.id,...d.data()})); return arr.sort((a,b)=>a.date.localeCompare(b.date)); }
 
-  // Eligibility & scoring
+  // Eligibility & scoring (unchanged)
   function eligibleTeacher(t){
     if(!t.active) return false;
     if(t.hasCalling) return false;
@@ -461,7 +493,7 @@
     return score;
   }
 
-  // Render: Next Up
+  // Renders
   async function renderNextUp(){
     const [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
     const recent = teachers
@@ -515,7 +547,6 @@
     }).join("");
   }
 
-  // Render: Schedule
   async function renderSchedule(){
     const [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
     const tMap=new Map(teachers.map(t=>[t.id,t]));
@@ -538,7 +569,6 @@
     }
   }
 
-  // Render: Directory
   async function renderDirectory(){
     const teachers=await fetchTeachers();
     const q=$("#searchInput").value.trim().toLowerCase();
@@ -578,9 +608,6 @@
       </div>`;
     }).join("");
   }
-  $("#searchInput").addEventListener("input", renderDirectory);
-  $("#filterSelect").addEventListener("change", renderDirectory);
-  $("#sortSelect").addEventListener("change", renderDirectory);
 
   // Actions
   window.toggleHasCalling = async(id,val)=>{ await setDoc(doc(colTeachers(),id), {hasCalling:!!val}, {merge:true}); renderAll(); };
@@ -654,7 +681,7 @@
     alert("Marked completed and reset attempts."); renderAll();
   };
 
-  // ===== Teacher Picker =====
+  // Teacher Picker
   let pickerState = { assignmentId: null, dateIso: null, teachers: [] };
   function openTeacherPicker(assignmentId){
     pickerState.assignmentId = assignmentId;
@@ -718,10 +745,8 @@
     closeTeacherPicker(); renderAll();
   };
 
-  // Render all
   async function renderAll(){ await Promise.all([renderNextUp(), renderSchedule(), renderDirectory()]); }
 
-  // Service worker
   if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
 </script>
 </body>
