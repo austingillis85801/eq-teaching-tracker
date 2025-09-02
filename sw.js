@@ -1,11 +1,9 @@
-const CACHE = 'eq-teachers-v4';
+const CACHE = 'eq-teachers-v5';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE).then((cache) =>
-      cache.addAll([
-        'manifest.webmanifest',
-      ])
+      cache.addAll(['manifest.webmanifest'])
     )
   );
 });
@@ -20,6 +18,6 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   event.respondWith(
-    caches.match(event.request).then((match) => match || fetch(event.request))
+    caches.match(event.request).then((m) => m || fetch(event.request))
   );
 });
