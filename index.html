@@ -48,6 +48,8 @@
     .list{max-height:60vh;overflow:auto}
     .item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed #eef2f7}
     .item .meta{font-size:12px;color:#657089}
+    /* FIX: ensure hidden beats overlay’s display:flex */
+    .overlay.hidden{display:none !important;}
   </style>
 </head>
 <body>
@@ -148,40 +150,6 @@
       <div class="card">
         <h3>Status</h3>
         <div id="stats"></div>
-      </div>
-    </div>
-  </section>
-
-  <section id="settings">
-    <div class="grid">
-      <div class="card">
-        <h3>Text Template</h3>
-        <div class="muted small">Variables: {FirstName}, {Date}, {TalkTitle}, {MeetingTime}</div>
-        <textarea id="textTemplate" rows="6" placeholder="Enter message..."></textarea>
-        <div class="row" style="margin-top:8px">
-          <button class="btn" id="saveTemplateBtn">Save Template</button>
-          <button class="btn" id="resetTemplateBtn">Reset to Sample</button>
-        </div>
-      </div>
-      <div class="card">
-        <h3>App Settings</h3>
-        <div class="row">
-          <div>
-            <label class="small">Meeting time (display only)</label><br/>
-            <input id="meetingTime" value="11:10 AM"/>
-          </div>
-          <div>
-            <label class="small">Ask cooldown (days)</label><br/>
-            <input id="askCooldown" type="number" value="60"/>
-          </div>
-          <div>
-            <label class="small">Retry after no response (days)</label><br/>
-            <input id="retryDays" type="number" value="60"/>
-          </div>
-        </div>
-        <div class="row" style="margin-top:8px">
-          <button class="btn" id="saveSettingsBtn">Save Settings</button>
-        </div>
       </div>
     </div>
   </section>
@@ -688,8 +656,8 @@
   let pickerState = { assignmentId: null, dateIso: null, teachers: [] };
   function openTeacherPicker(assignmentId){
     pickerState.assignmentId = assignmentId;
-    const el = $("#picker");
-    const dEl = $("#pickerDate");
+    const el = document.getElementById("picker");
+    const dEl = document.getElementById("pickerDate");
     (async ()=>{
       const aSnap = await getDoc(doc(colAssignments(), assignmentId));
       const a = aSnap.exists() ? aSnap.data() : {date:""};
@@ -701,17 +669,18 @@
     })();
   }
   function closeTeacherPicker(){
-    $("#picker").classList.add("hidden");
+    document.getElementById("picker").classList.add("hidden");
     pickerState = { assignmentId: null, dateIso: null, teachers: [] };
   }
-  $("#pickerClose").addEventListener("click", closeTeacherPicker);
-  $("#pickerSearch").addEventListener("input", renderPickerList);
-  $("#pickerShowCalling").addEventListener("change", renderPickerList);
+  document.getElementById("pickerClose").addEventListener("click", closeTeacherPicker);
+  document.getElementById("pickerSearch").addEventListener("input", renderPickerList);
+  document.getElementById("pickerShowCalling").addEventListener("change", renderPickerList);
+  window.addEventListener("keydown", (e)=>{ if(e.key==="Escape") closeTeacherPicker(); });
 
   function renderPickerList(){
-    const q = $("#pickerSearch").value.trim().toLowerCase();
-    const showCalling = $("#pickerShowCalling").checked;
-    const list = $("#pickerList");
+    const q = document.getElementById("pickerSearch").value.trim().toLowerCase();
+    const showCalling = document.getElementById("pickerShowCalling").checked;
+    const list = document.getElementById("pickerList");
     const arr = pickerState.teachers.filter(t=>{
       if(!t.active) return false;
       if(!showCalling && t.hasCalling) return false;
