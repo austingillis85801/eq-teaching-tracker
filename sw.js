@@ -1,4 +1,4 @@
-const CACHE = 'eq-teachers-v3'; // bumped again
+const CACHE = 'eq-teachers-v4';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
