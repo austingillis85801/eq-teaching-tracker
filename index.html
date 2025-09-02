@@ -40,7 +40,7 @@
     .small{font-size:12px}
     .hidden{display:none}
 
-    /* --- Teacher Picker Modal (new) --- */
+    /* --- Teacher Picker Modal --- */
     .overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:50}
     .modal{width:min(720px,92vw);background:#fff;border:1px solid #e5e8ef;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.15);}
     .modal .hd{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #eef2f7}
@@ -48,8 +48,8 @@
     .list{max-height:60vh;overflow:auto}
     .item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed #eef2f7}
     .item .meta{font-size:12px;color:#657089}
-    /* FIX: ensure hidden beats overlay’s display:flex */
-    .overlay.hidden{display:none !important;}
+    /* ensure hidden actually hides modal */
+    .overlay.hidden{display:none!important;}
   </style>
 </head>
 <body>
@@ -155,7 +155,7 @@
   </section>
 </main>
 
-<!-- Teacher Picker Modal (new) -->
+<!-- Teacher Picker Modal -->
 <div id="picker" class="overlay hidden">
   <div class="modal">
     <div class="hd">
@@ -188,13 +188,15 @@
     collection, doc, getDoc, getDocs, setDoc
   } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
-  /* =======================
-     REPLACE WITH YOUR KEYS
-     ======================= */
+  /* ==== YOUR FIREBASE CONFIG (from console) ==== */
   const FIREBASE_CONFIG = {
-    apiKey: "YOUR_API_KEY",
-    authDomain: "YOUR_AUTH_DOMAIN",
-    projectId: "YOUR_PROJECT_ID"
+    apiKey: "AIzaSyAhCxANql5AXYFq8Zi4tDI4Mu2b5AsejUY",
+    authDomain: "elders-teaching-assignments.firebaseapp.com",
+    projectId: "elders-teaching-assignments",
+    storageBucket: "elders-teaching-assignments.firebasestorage.app",
+    messagingSenderId: "421405368270",
+    appId: "1:421405368270:web:d145de252ea0246dc8959f",
+    measurementId: "G-2FJHRTNCLZ"
   };
 
   // Init
@@ -244,9 +246,9 @@
     retryNoResponseDays:60,
     textTemplate:"Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!"
   };
-  function colTeachers(){ return collection(db,"users",currentUser.uid,"teachers"); }
-  function colAssignments(){ return collection(db,"users",currentUser.uid,"assignments"); }
-  function docSettings(){ return doc(db,"users",currentUser.uid,"settings","app"); }
+  function colTeachers(){ return collection(db,"users",currentUser?.uid,"teachers"); }
+  function colAssignments(){ return collection(db,"users",currentUser?.uid,"assignments"); }
+  function docSettings(){ return doc(db,"users",currentUser?.uid,"settings","app"); }
 
   // Settings load/save
   async function loadSettings(){
@@ -278,7 +280,7 @@
 
   // Auth listener
   onAuthStateChanged(auth, async(u)=>{
-    currentUser=u;
+    currentUser=u||null;
     $("#signInBtn").classList.toggle("hidden", !!u);
     $("#signOutBtn").classList.toggle("hidden", !u);
     if(u){ await loadSettings(); renderAll(); }
@@ -628,7 +630,7 @@
     if(type==="Accepted"){ if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Confirmed", confirmedAt:now}, {merge:true}); } }
     else if(type==="Declined"){
       if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Unassigned", teacherIds:[], teacherNames:[], askedAt:null, confirmedAt:null}, {merge:true}); }
-      await setDoc(dref, { lastAsked: now }, {merge:true}); // respects cooldown
+      await setDoc(dref, { lastAsked: now }, {merge:true});
     }
     else if(type==="NoResponse"){
       await setDoc(dref, { noResponseFlag:true, noResponseAt:now }, {merge:true});
@@ -652,7 +654,7 @@
     alert("Marked completed and reset attempts."); renderAll();
   };
 
-  // ===== Teacher Picker (new) =====
+  // ===== Teacher Picker =====
   let pickerState = { assignmentId: null, dateIso: null, teachers: [] };
   function openTeacherPicker(assignmentId){
     pickerState.assignmentId = assignmentId;
