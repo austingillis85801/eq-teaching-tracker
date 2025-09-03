@@ -34,7 +34,7 @@
     .pill.red{background:#fdecec;border-color:#f6b1b1;color:#a92d2d}
     .pill.amber{background:#fff4e0;border-color:#ffd69a;color:#8a5a00}
     .grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:12px}
-    .tools{position:static} /* not sticky → better scrolling */
+    .tools{position:static} /* not sticky → nicer scrolling */
     .small{font-size:12px}
     .hidden{display:none}
 
@@ -70,6 +70,7 @@
 </header>
 
 <main class="wrap">
+  <!-- NEXT UP -->
   <section id="nextup" class="active">
     <div class="tools">
       <div class="row">
@@ -86,6 +87,7 @@
     <div class="grid" id="suggestions"></div>
   </section>
 
+  <!-- SCHEDULE -->
   <section id="schedule">
     <div class="card">
       <h3>Lesson Schedule</h3>
@@ -96,6 +98,7 @@
     </div>
   </section>
 
+  <!-- DIRECTORY -->
   <section id="directory">
     <div class="row">
       <div class="card" style="flex:1">
@@ -122,6 +125,7 @@
     </div>
   </section>
 
+  <!-- IMPORT / EXPORT -->
   <section id="import">
     <div class="grid">
       <div class="card">
@@ -148,6 +152,35 @@
       <div class="card">
         <h3>Status</h3>
         <div id="stats"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- SETTINGS (the missing piece) -->
+  <section id="settings">
+    <div class="grid">
+      <div class="card">
+        <h3>Message template</h3>
+        <div class="muted small" style="margin-bottom:6px">
+          You can use <code>{FirstName}</code>, <code>{Date}</code>, <code>{TalkTitle}</code>, <code>{MeetingTime}</code>.
+        </div>
+        <textarea id="textTemplate" rows="6" style="width:100%"></textarea>
+        <div class="row" style="margin-top:8px">
+          <button class="btn primary" id="saveTemplateBtn">Save template</button>
+          <button class="btn" id="resetTemplateBtn">Reset to default</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>App settings</h3>
+        <div class="row" style="gap:12px">
+          <label>Meeting time<br><input id="meetingTime" placeholder="e.g., 11:10 AM"></label>
+          <label>Ask cooldown (days)<br><input id="askCooldown" type="number" min="0" step="1" style="width:120px"></label>
+          <label>Retry after no response (days)<br><input id="retryDays" type="number" min="0" step="1" style="width:120px"></label>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <button class="btn primary" id="saveSettingsBtn">Save settings</button>
+        </div>
       </div>
     </div>
   </section>
@@ -222,7 +255,8 @@
     b.classList.add("active");
     const tab=b.dataset.tab;
     $$("main section").forEach(s=>s.classList.remove("active"));
-    $("#"+tab).classList.add("active");
+    const target = $("#"+tab);
+    if(target) target.classList.add("active");
   }));
 
   // Auth UI buttons
@@ -274,6 +308,28 @@
     setIf("retryDays", settings.retryNoResponseDays);
   }
 
+  // Bind settings buttons
+  function bindSettingsButtons(){
+    const saveT = $("#saveTemplateBtn");
+    const resetT = $("#resetTemplateBtn");
+    const saveS = $("#saveSettingsBtn");
+    if(saveT) saveT.addEventListener("click", ()=>{
+      settings.textTemplate=$("#textTemplate").value.trim();
+      setDoc(docSettings(), settings, {merge:true}).then(()=>alert("Template saved."));
+    });
+    if(resetT) resetT.addEventListener("click", ()=>{
+      settings.textTemplate="Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!";
+      setIf("textTemplate", settings.textTemplate);
+      setDoc(docSettings(), settings, {merge:true});
+    });
+    if(saveS) saveS.addEventListener("click", ()=>{
+      settings.meetingTime=$("#meetingTime").value.trim();
+      settings.askCooldownDays=parseInt($("#askCooldown").value,10)||60;
+      settings.retryNoResponseDays=parseInt($("#retryDays").value,10)||60;
+      setDoc(docSettings(), settings, {merge:true}).then(()=>alert("Settings saved."));
+    });
+  }
+
   // Auth listener
   onAuthStateChanged(auth, async (u)=>{
     currentUser=u||null;
@@ -283,8 +339,11 @@
     $("#signUpBtn").classList.toggle("hidden",  !!u);
     $("#signOutBtn").classList.toggle("hidden", !u);
 
-    if(u){ await loadSettings(); await renderAll(); }
-    else{
+    if(u){
+      await loadSettings();
+      bindSettingsButtons();
+      await renderAll();
+    } else {
       $("#recentlyAsked").innerHTML="";
       $("#unassignedList").innerHTML="";
       $("#suggestions").innerHTML="";
@@ -293,7 +352,7 @@
     }
   });
 
-  // File helpers
+  // File helpers (imports)
   function parseDateFlexible(v){
     if(!v) return null;
     if(v instanceof Date) return v;
@@ -427,8 +486,6 @@
     const blob=new Blob([payload],{type:"application/json"}); const a=document.createElement("a");
     a.href=URL.createObjectURL(blob); a.download="backup.json"; a.click();
   });
-
-  // NEW: remove nameless docs
   $("#cleanNamelessBtn").addEventListener("click", async()=>{
     if(!currentUser) return alert("Sign in first.");
     if(!confirm('Remove all teacher records that have no "name"?')) return;
@@ -451,7 +508,7 @@
 
   // Eligibility & scoring
   function eligibleTeacher(t){
-    if(!t || !t.name || !String(t.name).trim()) return false; // hide nameless everywhere
+    if(!t || !t.name || !String(t.name).trim()) return false; // hide nameless
     if(!t.active) return false;
     if(t.hasCalling) return false;
     if(t.willingToTeachAgain===false) return false;
@@ -473,7 +530,7 @@
     score += (t.attemptsSinceLastTaught||0)*2;
     if(t.tags && t.tags.includes("Bench")){
       const daysTo=Math.floor((new Date(meetingIso).getTime()-Date.now())/86400000);
-      if(daysTo<=7) score += 15; // Bench = short-term priority bump
+      if(daysTo<=7) score += 15; // Bench bump when close
     }
     return score;
   }
@@ -527,10 +584,16 @@
         <div class="row" style="margin-top:8px">
           <button class="btn primary" onclick="askTeacher('${t.id}','${next.id}')">Ask for ${next.date}</button>
           <button class="btn" onclick="toggleHasCalling('${t.id}', true)">Has calling</button>
-          <button class="btn" onclick="snoozeSixMonths('${t.id}')">Snooze 6mo</button>
+          <button class="btn" onclick="toggleSnooze('${t.id}')">${isSnoozed(t) ? "Unsnooze" : "Snooze 6mo"}</button>
         </div>
       </div>`;
     }).join("");
+  }
+
+  function isSnoozed(t){
+    if(!t || !t.snoozeUntil) return false;
+    const s = t.snoozeUntil.toDate ? t.snoozeUntil.toDate() : new Date(t.snoozeUntil);
+    return s > new Date();
   }
 
   async function renderSchedule(){
@@ -540,6 +603,7 @@
     for(const a of assignments){
       const names=(a.teacherIds||[]).map(id=> tMap.get(id)?.name || id);
       const warn=isSecondOrFourthSunday(a.date)? "": "<span class='pill amber'>⚠</span>";
+      const isDone = a.status==="Completed";
       const tr=document.createElement("tr");
       tr.innerHTML = `
         <td>${a.date} ${warn}</td>
@@ -549,7 +613,7 @@
         <td>
           <button class="btn" onclick="quickAssign('${a.id}')">Suggest</button>
           <button class="btn" onclick="openTeacherPicker('${a.id}')">Pick</button>
-          <button class="btn" onclick="markAssignmentCompleted('${a.id}')">Mark completed</button>
+          <button class="btn" onclick="toggleCompleted('${a.id}')">${isDone?"Undo completed":"Mark completed"}</button>
         </td>`;
       tbody.appendChild(tr);
     }
@@ -562,11 +626,8 @@
     const sort=$("#sortSelect").value;
 
     let arr=teachers.slice();
-
-    // Filter out nameless
     arr = arr.filter(t=> t && t.name && String(t.name).trim());
 
-    // Filters
     arr = arr.filter(t=>{
       if(filter==="active" && !t.active) return false;
       if(filter==="hasCalling" && !t.hasCalling) return false;
@@ -575,7 +636,6 @@
       return hay.includes(q);
     });
 
-    // Sort
     arr.sort((a,b)=>{
       if(sort==="name") return (a.name||"").localeCompare(b.name||"");
       if(sort==="lastTaught") return daysSince(a.lastTaught?.toDate? a.lastTaught.toDate():a.lastTaught||0) - daysSince(b.lastTaught?.toDate? b.lastTaught.toDate():b.lastTaught||0);
@@ -592,9 +652,10 @@
       const bench=(t.tags||[]).includes("Bench")? `<span class="pill green" style="margin-left:6px">Bench</span>`:"";
       const calling=t.hasCalling? `<span class="pill amber" style="margin-left:6px">Has calling</span>`:"";
       const unwilling=(t.willingToTeachAgain===false)? `<span class="pill red" style="margin-left:6px">Not willing</span>`:"";
-      const willingBtn = (t.willingToTeachAgain===false)
+      const willingBtn=(t.willingToTeachAgain===false)
         ? `<button class="btn" onclick="setWilling('${t.id}', true)">Set willing</button>`
         : `<button class="btn" onclick="setWilling('${t.id}', false)">Set not willing</button>`;
+      const snoozeBtn = `<button class="btn" onclick="toggleSnooze('${t.id}')">${isSnoozed(t) ? "Unsnooze" : "Snooze 6mo"}</button>`;
 
       return `<div class="card">
         <h3>${t.name} ${bench} ${calling} ${unwilling}</h3>
@@ -604,18 +665,18 @@
           <button class="btn" onclick="toggleHasCalling('${t.id}', ${!t.hasCalling})">${t.hasCalling?"Clear calling":"Has calling"}</button>
           <button class="btn" onclick="toggleBench('${t.id}', ${!(t.tags||[]).includes("Bench")})">${(t.tags||[]).includes("Bench")?"Remove Bench":"Add Bench"}</button>
           ${willingBtn}
-          <button class="btn" onclick="snoozeSixMonths('${t.id}')">Snooze 6mo</button>
+          ${snoozeBtn}
         </div>
       </div>`;
     }).join("");
   }
 
-  // Live search + filters
+  // Live directory filters
   $("#searchInput").addEventListener("input", renderDirectory);
   $("#filterSelect").addEventListener("change", renderDirectory);
   $("#sortSelect").addEventListener("change", renderDirectory);
 
-  // Quick actions
+  // Quick actions / toggles
   window.toggleHasCalling = async(id,val)=>{ await setDoc(doc(colTeachers(),id), {hasCalling:!!val}, {merge:true}); renderAll(); };
   window.setWilling = async(id,makeWilling)=>{
     await setDoc(doc(colTeachers(),id), {willingToTeachAgain: !!makeWilling}, {merge:true});
@@ -626,10 +687,12 @@
     const t=snap.data(); const tags=new Set(t.tags||[]); if(add) tags.add("Bench"); else tags.delete("Bench");
     await setDoc(dref, {tags:Array.from(tags)}, {merge:true}); renderAll();
   };
-  window.snoozeSixMonths = async(id)=>{
-    const d=new Date(); const snoozeUntil=new Date(d.getTime()+180*86400000);
-    await setDoc(doc(colTeachers(),id), {snoozeUntil}, {merge:true});
-    alert("Snoozed for 6 months."); renderAll();
+  window.toggleSnooze = async(id)=>{
+    const dref=doc(colTeachers(),id); const snap=await getDoc(dref); if(!snap.exists()) return;
+    const t=snap.data();
+    if(isSnoozed(t)){ await setDoc(dref, {snoozeUntil:null}, {merge:true}); }
+    else{ const until=new Date(Date.now()+180*86400000); await setDoc(dref, {snoozeUntil:until}, {merge:true}); }
+    renderDirectory();
   };
   window.suggestTeacherFor = async(assignId, iso)=>{
     const teachers=await fetchTeachers();
@@ -676,21 +739,31 @@
     renderAll();
   };
 
-  // Allow marking completed even if no teacher is assigned
-  window.markAssignmentCompleted = async(assignmentId)=>{
-    const now=new Date();
-    const aSnap=await getDoc(doc(colAssignments(), assignmentId)); if(!aSnap.exists()) return;
-    const a=aSnap.data(); const teacherId=(a.teacherIds||[])[0] || null;
-
-    await setDoc(doc(colAssignments(), assignmentId), { status:"Completed" }, {merge:true});
-    if(teacherId){
-      await setDoc(doc(colTeachers(), teacherId), { lastTaught: now, attemptsSinceLastTaught:0 }, {merge:true});
+  // Toggle completed
+  window.toggleCompleted = async(assignmentId)=>{
+    const aRef = doc(colAssignments(), assignmentId);
+    const aSnap = await getDoc(aRef); if(!aSnap.exists()) return;
+    const a = aSnap.data();
+    if(a.status==="Completed"){
+      // Undo: best-effort restore
+      let newStatus = "Unassigned";
+      if(a.teacherIds && a.teacherIds.length){
+        if(a.confirmedAt) newStatus="Confirmed";
+        else if(a.askedAt) newStatus="Asked";
+      }
+      await setDoc(aRef, {status:newStatus}, {merge:true});
+    } else {
+      // Mark completed
+      await setDoc(aRef, {status:"Completed"}, {merge:true});
+      const teacherId=(a.teacherIds||[])[0];
+      if(teacherId){
+        await setDoc(doc(colTeachers(), teacherId), { lastTaught:new Date(), attemptsSinceLastTaught:0 }, {merge:true});
+      }
     }
-    alert("Marked completed.");
-    renderAll();
+    renderSchedule();
   };
 
-  // Expose picker to page
+  // Picker
   window.openTeacherPicker = (assignmentId)=>{
     pickerState.assignmentId = assignmentId;
     const el = document.getElementById("picker");
@@ -706,7 +779,6 @@
     })();
   };
 
-  // Teacher Picker
   let pickerState = { assignmentId: null, dateIso: null, teachers: [] };
   function closeTeacherPicker(){
     document.getElementById("picker").classList.add("hidden");
