@@ -34,9 +34,11 @@
     .pill.red{background:#fdecec;border-color:#f6b1b1;color:#a92d2d}
     .pill.amber{background:#fff4e0;border-color:#ffd69a;color:#8a5a00}
     .grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:12px}
-    .sticky-tools{position:sticky;top:64px;background:var(--bg);padding:8px 0;z-index:4}
+    /* was sticky; disabled so the page scrolls normally */
+    .tools{position:static}
     .small{font-size:12px}
     .hidden{display:none}
+
     /* Modal */
     .overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:50}
     .modal{width:min(720px,92vw);background:#fff;border:1px solid #e5e8ef;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.15);}
@@ -70,7 +72,7 @@
 
 <main class="wrap">
   <section id="nextup" class="active">
-    <div class="sticky-tools">
+    <div class="tools">
       <div class="row">
         <div class="card" style="flex:1">
           <h3>Recently asked (last 10 days)</h3>
@@ -262,7 +264,7 @@
   function colAssignments(){ return collection(db,"users",currentUser?.uid,"assignments"); }
   function docSettings(){ return doc(db,"users",currentUser?.uid,"settings","app"); }
 
-  // Settings load/save (FIXED: no assignment to optional chain)
+  // Settings load/save
   async function loadSettings(){
     const snap=await getDoc(docSettings());
     if(snap.exists()) settings=Object.assign(settings,snap.data());
@@ -272,7 +274,7 @@
     setIf("retryDays", settings.retryNoResponseDays);
   }
 
-  // Auth listener (updates header & renders)
+  // Auth listener
   onAuthStateChanged(auth, async (u)=>{
     currentUser=u||null;
     $("#userBadge").textContent = u ? `Signed in as ${u.email||u.uid}` : "";
@@ -650,25 +652,24 @@
     }
     renderAll();
   };
-  window.quickAssign = async(assignmentId)=>{
-    const aSnap=await getDoc(doc(colAssignments(), assignmentId)); if(!aSnap.exists()) return;
-    const a=aSnap.data(); const teachers=await fetchTeachers();
-    const elig=teachers.filter(t=>eligibleTeacher(t)); elig.sort((x,y)=> teacherScore(y, a.date) - teacherScore(x, a.date));
-    const t=elig[0]; if(!t) return alert("No eligible teachers right now.");
-    await setDoc(doc(colAssignments(), assignmentId), { teacherIds:[t.id], teacherNames:[t.name||t.id], status:"Asked", askedAt:new Date() }, {merge:true});
-    alert("Assigned (Asked): "+(t.name||t.id)); renderAll();
-  };
+
+  // ✅ Allow marking completed even if no teacher is assigned
   window.markAssignmentCompleted = async(assignmentId)=>{
-    const now=new Date(); const aSnap=await getDoc(doc(colAssignments(), assignmentId)); if(!aSnap.exists()) return;
-    const a=aSnap.data(); const teacherId=(a.teacherIds||[])[0]; if(!teacherId) return alert("No teacher on this assignment.");
+    const now=new Date();
+    const aSnap=await getDoc(doc(colAssignments(), assignmentId)); if(!aSnap.exists()) return;
+    const a=aSnap.data();
+    const teacherId=(a.teacherIds||[])[0] || null;
+
     await setDoc(doc(colAssignments(), assignmentId), { status:"Completed" }, {merge:true});
-    await setDoc(doc(colTeachers(), teacherId), { lastTaught: now, attemptsSinceLastTaught:0 }, {merge:true});
-    alert("Marked completed and reset attempts."); renderAll();
+    if(teacherId){
+      await setDoc(doc(colTeachers(), teacherId), { lastTaught: now, attemptsSinceLastTaught:0 }, {merge:true});
+    }
+    alert("Marked completed.");
+    renderAll();
   };
 
-  // Teacher Picker
-  let pickerState = { assignmentId: null, dateIso: null, teachers: [] };
-  function openTeacherPicker(assignmentId){
+  // 🔓 Expose the picker to the page (so onclick works)
+  window.openTeacherPicker = (assignmentId)=>{
     pickerState.assignmentId = assignmentId;
     const el = document.getElementById("picker");
     const dEl = document.getElementById("pickerDate");
@@ -681,7 +682,10 @@
       renderPickerList();
       el.classList.remove("hidden");
     })();
-  }
+  };
+
+  // Teacher Picker
+  let pickerState = { assignmentId: null, dateIso: null, teachers: [] };
   function closeTeacherPicker(){
     document.getElementById("picker").classList.add("hidden");
     pickerState = { assignmentId: null, dateIso: null, teachers: [] };
