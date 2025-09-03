@@ -34,7 +34,7 @@
     .pill.red{background:#fdecec;border-color:#f6b1b1;color:#a92d2d}
     .pill.amber{background:#fff4e0;border-color:#ffd69a;color:#8a5a00}
     .grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:12px}
-    .tools{position:static} /* not sticky → nicer scrolling */
+    .tools{position:static}
     .small{font-size:12px}
     .hidden{display:none}
 
@@ -92,7 +92,7 @@
     <div class="card">
       <h3>Lesson Schedule</h3>
       <table id="scheduleTable">
-        <thead><tr><th>Date</th><th>Talk Title</th><th>Status</th><th>Teacher</th><th>Actions</th></tr></thead>
+        <thead><tr><th>Date</th><th>Talk</th><th>Status</th><th>Teacher</th><th>Actions</th></tr></thead>
         <tbody></tbody>
       </table>
     </div>
@@ -162,7 +162,7 @@
       <div class="card">
         <h3>Message template</h3>
         <div class="muted small" style="margin-bottom:6px">
-          You can use <code>{FirstName}</code>, <code>{Date}</code>, <code>{TalkTitle}</code>, <code>{MeetingTime}</code>.
+          Placeholders you can use: <code>{FirstName}</code>, <code>{LastName}</code>, <code>{Date}</code>, <code>{NextTeachSundayPretty}</code>, <code>{TalkTitle}</code>, <code>{TalkSpeaker}</code>, <code>{MeetingTime}</code>.
         </div>
         <textarea id="textTemplate" rows="6" style="width:100%"></textarea>
         <div class="row" style="margin-top:8px">
@@ -237,9 +237,21 @@
   const $$ = (s)=>Array.from(document.querySelectorAll(s));
   const setIf = (id,val)=>{ const el=document.getElementById(id); if(el) el.value=val; };
   function fmtDate(d){ if(!d) return ""; const dt=(d instanceof Date)?d:new Date(d); return dt.toISOString().slice(0,10); }
+  function prettyDate(iso){
+    if(!iso) return "";
+    const d=new Date(iso+"T12:00:00");
+    return d.toLocaleDateString(undefined,{weekday:"long", month:"long", day:"numeric"});
+  }
   function daysSince(d){ if(!d) return 9999; const dt=(d instanceof Date)?d:new Date(d); return Math.floor((Date.now()-dt.getTime())/86400000); }
   function phoneDigits(p){ return (p||"").replace(/\D+/g,""); }
   function keyFrom(name,email,phone){ return [phoneDigits(phone), String(email||"").toLowerCase().trim(), String(name||"").toLowerCase().trim()].join("|"); }
+  function lastNameFrom(full){
+    if(!full) return "";
+    const s=String(full).trim();
+    if(!s) return "";
+    if(s.includes(",")) return s.split(",")[0].trim();
+    const parts=s.split(/\s+/); return parts[parts.length-1]||s;
+  }
   function isSecondOrFourthSunday(iso){
     const d = new Date(iso+"T12:00:00");
     if(d.getDay()!==0) return false;
@@ -277,7 +289,7 @@
       await setDoc(doc(db,"users",auth.currentUser.uid,"settings","app"), {
         meetingDay:"Sunday", meetingTime:"11:10 AM",
         askCooldownDays:60, retryNoResponseDays:60,
-        textTemplate:"Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!"
+        textTemplate:"Hey brother {LastName}, this is Austin Gillis from elders quorum. Would you be willing to lead the next elders meeting discussion on {NextTeachSundayPretty}? The presidency has prayed and know you would do amazing if you’re willing."
       }, {merge:true});
       alert("Account created. You're now signed in.");
     }catch(e){ alert("Create account failed: " + (e?.message||e)); console.error(e); }
@@ -292,7 +304,7 @@
     meetingTime:"11:10 AM",
     askCooldownDays:60,
     retryNoResponseDays:60,
-    textTemplate:"Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!"
+    textTemplate:"Hey brother {LastName}, this is Austin Gillis from elders quorum. Would you be willing to lead the next elders meeting discussion on {NextTeachSundayPretty}? The presidency has prayed and know you would do amazing if you’re willing."
   };
   function colTeachers(){ return collection(db,"users",currentUser?.uid,"teachers"); }
   function colAssignments(){ return collection(db,"users",currentUser?.uid,"assignments"); }
@@ -318,7 +330,7 @@
       setDoc(docSettings(), settings, {merge:true}).then(()=>alert("Template saved."));
     });
     if(resetT) resetT.addEventListener("click", ()=>{
-      settings.textTemplate="Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!";
+      settings.textTemplate="Hey brother {LastName}, this is Austin Gillis from elders quorum. Would you be willing to lead the next elders meeting discussion on {NextTeachSundayPretty}? The presidency has prayed and know you would do amazing if you’re willing.";
       setIf("textTemplate", settings.textTemplate);
       setDoc(docSettings(), settings, {merge:true});
     });
@@ -419,11 +431,12 @@
       const date=parseDateFlexible(r["Date"]); if(!date) continue;
       const iso=fmtDate(date);
       const talkTitle=r["Talk Title"] ?? r["Title"] ?? "";
+      const talkSpeaker=r["Talk Speaker"] ?? r["Speaker"] ?? r["General Authority"] ?? "";
       const teacherAssigned=r["Teacher Assigned"] ?? "";
       const teacherConfirmed=String(r["Teacher Confirmed?"] ?? "").toLowerCase().startsWith("y");
       const status=teacherAssigned ? (teacherConfirmed ? "Confirmed" : "Asked") : "Unassigned";
       await setDoc(doc(colAssignments(), iso), {
-        date:iso,talkTitle,
+        date:iso,talkTitle,talkSpeaker,
         teacherIds: teacherAssigned ? [keyFrom(teacherAssigned,"","")] : [],
         teacherNames: teacherAssigned ? [teacherAssigned] : [],
         status,askedAt:null,confirmedAt:null,notes:r["Notes"] ?? ""
@@ -530,7 +543,7 @@
     score += (t.attemptsSinceLastTaught||0)*2;
     if(t.tags && t.tags.includes("Bench")){
       const daysTo=Math.floor((new Date(meetingIso).getTime()-Date.now())/86400000);
-      if(daysTo<=7) score += 15; // Bench bump when close
+      if(daysTo<=7) score += 15;
     }
     return score;
   }
@@ -560,8 +573,9 @@
       .slice(0,8);
 
     $("#unassignedList").innerHTML = upcoming.length ? upcoming.map(a=>{
+      const talkDisplay = (a.talkSpeaker && a.talkTitle) ? `${a.talkSpeaker} — ${a.talkTitle}` : (a.talkTitle || a.talkSpeaker || "");
       return `<div class="row" style="align-items:center;justify-content:space-between;border-bottom:1px dashed #eef2f7;padding:6px 0">
-        <div><b>${a.date}</b> — ${a.talkTitle||"(No title)"} </div>
+        <div><b>${a.date}</b> — ${talkDisplay||"(No title)"} </div>
         <div class="row">
           <button class="btn primary" onclick="suggestTeacherFor('${a.id}','${a.date}')">Suggest teacher</button>
           <button class="btn" onclick="openTeacherPicker('${a.id}')">Pick teacher</button>
@@ -604,10 +618,11 @@
       const names=(a.teacherIds||[]).map(id=> tMap.get(id)?.name || id);
       const warn=isSecondOrFourthSunday(a.date)? "": "<span class='pill amber'>⚠</span>";
       const isDone = a.status==="Completed";
+      const talkDisplay = (a.talkSpeaker && a.talkTitle) ? `${a.talkSpeaker} — ${a.talkTitle}` : (a.talkTitle || a.talkSpeaker || "");
       const tr=document.createElement("tr");
       tr.innerHTML = `
         <td>${a.date} ${warn}</td>
-        <td>${a.talkTitle||""}</td>
+        <td>${talkDisplay}</td>
         <td>${a.status||"Unassigned"}</td>
         <td>${names.join(", ")||"—"}</td>
         <td>
@@ -628,10 +643,9 @@
     let arr=teachers.slice();
     arr = arr.filter(t=> t && t.name && String(t.name).trim());
 
-    // NEW: filter by "noCalling"
     arr = arr.filter(t=>{
       if(filter==="active" && !t.active) return false;
-      if(filter==="noCalling" && t.hasCalling) return false;   // show only people without callings
+      if(filter==="noCalling" && t.hasCalling) return false;
       if(filter==="bench" && !(t.tags||[]).includes("Bench")) return false;
       const hay=[t.name||"", t.email||"", phoneDigits(t.phone||"")].join(" ").toLowerCase();
       return hay.includes(q);
@@ -704,27 +718,41 @@
     alert("Top suggestion for "+iso+": "+(top.name||top.id));
     renderAll();
   };
-  function buildSmsBody(name,dateIso,title){
-    return settings.textTemplate
-      .replaceAll("{FirstName}", (name||"").split(" ")[0])
-      .replaceAll("{Date}", dateIso)
+
+  // SMS template support (new placeholders)
+  function buildSmsBody(name,dateIso,title,speaker){
+    const ln = lastNameFrom(name);
+    const pretty = prettyDate(dateIso) || "";
+    const first = String(name||"").trim().split(/\s+/)[0] || "";
+    return (settings.textTemplate||"")
+      .replaceAll("{FirstName}", first)
+      .replaceAll("{LastName}", ln)
+      .replaceAll("{Date}", dateIso||"")
+      .replaceAll("{NextTeachSundayPretty}", pretty)
       .replaceAll("{TalkTitle}", title||"")
+      .replaceAll("{TalkSpeaker}", speaker||"")
       .replaceAll("{MeetingTime}", settings.meetingTime||"");
   }
+
   window.askTeacher = async(teacherId, assignmentId)=>{
     const aSnap=await getDoc(doc(colAssignments(), assignmentId)); if(!aSnap.exists()) return alert("Assignment not found.");
     const a=aSnap.data(); const tSnap=await getDoc(doc(colTeachers(), teacherId)); if(!tSnap.exists()) return alert("Teacher not found.");
     const t=tSnap.data(); const now=new Date();
     await setDoc(doc(colTeachers(), teacherId), { lastAsked: now, attemptsSinceLastTaught: (t.attemptsSinceLastTaught||0)+1, noResponseFlag:false }, {merge:true});
     await setDoc(doc(colAssignments(), assignmentId), { status:"Asked", askedAt: now, teacherIds:[teacherId], teacherNames:[t.name||teacherId] }, {merge:true});
-    const body=encodeURIComponent(buildSmsBody(t.name, a.date, a.talkTitle)); const phone=phoneDigits(t.phone||"");
-    const smsHref = phone ? `sms:${phone}?&body=${body}` : `sms:?&body=${body}`; window.location.href=smsHref; renderAll();
+    const body=encodeURIComponent(buildSmsBody(t.name, a.date, a.talkTitle, a.talkSpeaker));
+    const phone=phoneDigits(t.phone||"");
+    const smsHref = phone ? `sms:${phone}?&body=${body}` : `sms:?&body=${body}`;
+    window.location.href=smsHref;
+    renderAll();
   };
+
   window.openAskForTeacher = async(teacherId)=>{
     const assigns=await fetchAssignments();
     const target=assigns.find(x=> isSecondOrFourthSunday(x.date) && (x.status==="Unassigned" || !x.teacherIds || x.teacherIds.length===0));
     if(!target) return alert("No unassigned lesson found."); await askTeacher(teacherId, target.id);
   };
+
   window.markResponse = async(teacherId, type)=>{
     const now=new Date(); const dref=doc(colTeachers(), teacherId); const snap=await getDoc(dref); if(!snap.exists()) return;
     const assigns=await fetchAssignments(); const a=assigns.find(x=> (x.teacherIds||[]).includes(teacherId) && (x.status==="Asked" || x.status==="Confirmed"));
@@ -746,7 +774,6 @@
     const aSnap = await getDoc(aRef); if(!aSnap.exists()) return;
     const a = aSnap.data();
     if(a.status==="Completed"){
-      // Undo: best-effort restore
       let newStatus = "Unassigned";
       if(a.teacherIds && a.teacherIds.length){
         if(a.confirmedAt) newStatus="Confirmed";
@@ -754,7 +781,6 @@
       }
       await setDoc(aRef, {status:newStatus}, {merge:true});
     } else {
-      // Mark completed
       await setDoc(aRef, {status:"Completed"}, {merge:true});
       const teacherId=(a.teacherIds||[])[0];
       if(teacherId){
