@@ -34,8 +34,7 @@
     .pill.red{background:#fdecec;border-color:#f6b1b1;color:#a92d2d}
     .pill.amber{background:#fff4e0;border-color:#ffd69a;color:#8a5a00}
     .grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:12px}
-    /* was sticky; disabled so the page scrolls normally */
-    .tools{position:static}
+    .tools{position:static} /* not sticky → better scrolling */
     .small{font-size:12px}
     .hidden{display:none}
 
@@ -142,6 +141,7 @@
           <button class="btn" id="fixDupBtn">Fix Duplicates</button>
           <button class="btn" id="exportBtn">Export CSV</button>
           <button class="btn" id="backupBtn">Backup JSON</button>
+          <button class="btn" id="cleanNamelessBtn">Remove “(No name)”</button>
         </div>
         <div id="importLog" class="small muted" style="margin-top:8px"></div>
       </div>
@@ -181,7 +181,7 @@
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
   import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
-  import { initializeFirestore, persistentLocalCache, collection, doc, getDoc, getDocs, setDoc } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
+  import { initializeFirestore, persistentLocalCache, collection, doc, getDoc, getDocs, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
   /* ==== YOUR FIREBASE CONFIG ==== */
   const FIREBASE_CONFIG = {
@@ -293,26 +293,6 @@
     }
   });
 
-  // Settings save (delegated)
-  document.addEventListener("click",(e)=>{
-    if(e.target?.id==="saveTemplateBtn"){
-      settings.textTemplate=$("#textTemplate").value.trim();
-      setDoc(docSettings(), settings, {merge:true}).then(()=>alert("Template saved."));
-    }
-    if(e.target?.id==="resetTemplateBtn"){
-      settings.textTemplate="Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!";
-      setIf("textTemplate", settings.textTemplate);
-      setDoc(docSettings(), settings, {merge:true});
-    }
-    if(e.target?.id==="saveSettingsBtn"){
-      settings.meetingTime=$("#meetingTime").value.trim();
-      settings.askCooldownDays=parseInt($("#askCooldown").value,10)||60;
-      settings.retryNoResponseDays=parseInt($("#retryDays").value,10)||60;
-      setDoc(docSettings(), settings, {merge:true}).then(()=>alert("Settings saved."));
-      renderAll();
-    }
-  });
-
   // File helpers
   function parseDateFlexible(v){
     if(!v) return null;
@@ -409,7 +389,7 @@
     return {imported};
   }
 
-  // Import/Export buttons
+  // Import/Export / Cleanup buttons
   $("#importBtn").addEventListener("click", async()=>{
     if(!currentUser) return alert("Sign in first.");
     const ttF=$("#ttFile").files[0]; const roF=$("#rosterFile").files[0];
@@ -448,12 +428,30 @@
     a.href=URL.createObjectURL(blob); a.download="backup.json"; a.click();
   });
 
+  // NEW: remove nameless docs
+  $("#cleanNamelessBtn").addEventListener("click", async()=>{
+    if(!currentUser) return alert("Sign in first.");
+    if(!confirm('Remove all teacher records that have no "name"?')) return;
+    let removed=0;
+    const snap=await getDocs(colTeachers());
+    for (const d of snap.docs){
+      const t=d.data();
+      if(!t.name || !String(t.name).trim()){
+        await deleteDoc(doc(colTeachers(), d.id));
+        removed++;
+      }
+    }
+    alert(`Removed ${removed} nameless record(s).`);
+    renderAll();
+  });
+
   // Data fetchers
   async function fetchTeachers(){ const arr=[]; const snap=await getDocs(colTeachers()); snap.forEach(d=>arr.push({id:d.id,...d.data()})); return arr; }
   async function fetchAssignments(){ const arr=[]; const snap=await getDocs(colAssignments()); snap.forEach(d=>arr.push({id:d.id,...d.data()})); return arr.sort((a,b)=>a.date.localeCompare(b.date)); }
 
   // Eligibility & scoring
   function eligibleTeacher(t){
+    if(!t || !t.name || !String(t.name).trim()) return false; // hide nameless everywhere
     if(!t.active) return false;
     if(t.hasCalling) return false;
     if(t.willingToTeachAgain===false) return false;
@@ -475,7 +473,7 @@
     score += (t.attemptsSinceLastTaught||0)*2;
     if(t.tags && t.tags.includes("Bench")){
       const daysTo=Math.floor((new Date(meetingIso).getTime()-Date.now())/86400000);
-      if(daysTo<=7) score += 15;
+      if(daysTo<=7) score += 15; // Bench = short-term priority bump
     }
     return score;
   }
@@ -484,13 +482,14 @@
   async function renderNextUp(){
     const [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
     const recent = teachers
+      .filter(t=>t && t.name)
       .map(t=>({t, ds: t.lastAsked ? daysSince(t.lastAsked.toDate? t.lastAsked.toDate():t.lastAsked):9999}))
       .filter(x=>x.ds<=10).sort((a,b)=>a.ds-b.ds).slice(0,30);
 
     $("#recentlyAsked").innerHTML = recent.length ? recent.map(x=>{
       const t=x.t;
       return `<div class="row" style="align-items:center;justify-content:space-between;border-bottom:1px dashed #eef2f7;padding:6px 0">
-        <div><b>${t.name||"(No name)"}:</b> asked ${x.ds}d ago</div>
+        <div><b>${t.name}:</b> asked ${x.ds}d ago</div>
         <div class="row">
           <button class="btn" onclick="markResponse('${t.id}','Accepted')">Confirm</button>
           <button class="btn" onclick="markResponse('${t.id}','Declined')">Declined</button>
@@ -523,7 +522,7 @@
       const lastA=t.lastAsked? fmtDate(t.lastAsked?.toDate ? t.lastAsked.toDate(): t.lastAsked) : "—";
       const bench=(t.tags||[]).includes("Bench")? `<span class="pill green" style="margin-left:6px">Bench</span>`:"";
       return `<div class="card">
-        <h3>${t.name||"(No name)"} ${bench}</h3>
+        <h3>${t.name} ${bench}</h3>
         <div class="muted small">Last taught: ${lastT} • Last asked: ${lastA}</div>
         <div class="row" style="margin-top:8px">
           <button class="btn primary" onclick="askTeacher('${t.id}','${next.id}')">Ask for ${next.date}</button>
@@ -561,7 +560,13 @@
     const q=$("#searchInput").value.trim().toLowerCase();
     const filter=$("#filterSelect").value;
     const sort=$("#sortSelect").value;
+
     let arr=teachers.slice();
+
+    // Filter out nameless
+    arr = arr.filter(t=> t && t.name && String(t.name).trim());
+
+    // Filters
     arr = arr.filter(t=>{
       if(filter==="active" && !t.active) return false;
       if(filter==="hasCalling" && !t.hasCalling) return false;
@@ -569,6 +574,8 @@
       const hay=[t.name||"", t.email||"", phoneDigits(t.phone||"")].join(" ").toLowerCase();
       return hay.includes(q);
     });
+
+    // Sort
     arr.sort((a,b)=>{
       if(sort==="name") return (a.name||"").localeCompare(b.name||"");
       if(sort==="lastTaught") return daysSince(a.lastTaught?.toDate? a.lastTaught.toDate():a.lastTaught||0) - daysSince(b.lastTaught?.toDate? b.lastTaught.toDate():b.lastTaught||0);
@@ -576,28 +583,44 @@
       if(sort==="lastAsked") return daysSince(a.lastAsked?.toDate? a.lastAsked.toDate():a.lastAsked||0) - daysSince(b.lastAsked?.toDate? b.lastAsked.toDate():b.lastAsked||0);
       return 0;
     });
+
     $("#dirCount").textContent=`${arr.length} teachers`;
+
     $("#directoryGrid").innerHTML = arr.map(t=>{
       const lastT=t.lastTaught? fmtDate(t.lastTaught?.toDate? t.lastTaught.toDate(): t.lastTaught):"—";
       const lastA=t.lastAsked? fmtDate(t.lastAsked?.toDate? t.lastAsked.toDate(): t.lastAsked):"—";
       const bench=(t.tags||[]).includes("Bench")? `<span class="pill green" style="margin-left:6px">Bench</span>`:"";
       const calling=t.hasCalling? `<span class="pill amber" style="margin-left:6px">Has calling</span>`:"";
-      const willing=(t.willingToTeachAgain===false)? `<span class="pill red" style="margin-left:6px">Not willing</span>`:"";
+      const unwilling=(t.willingToTeachAgain===false)? `<span class="pill red" style="margin-left:6px">Not willing</span>`:"";
+      const willingBtn = (t.willingToTeachAgain===false)
+        ? `<button class="btn" onclick="setWilling('${t.id}', true)">Set willing</button>`
+        : `<button class="btn" onclick="setWilling('${t.id}', false)">Set not willing</button>`;
+
       return `<div class="card">
-        <h3>${t.name||"(No name)"} ${bench} ${calling} ${willing}</h3>
+        <h3>${t.name} ${bench} ${calling} ${unwilling}</h3>
         <div class="muted small">Last taught: ${lastT} • Last asked: ${lastA}</div>
         <div class="row" style="margin-top:8px">
           <button class="btn" onclick="openAskForTeacher('${t.id}')">Ask…</button>
           <button class="btn" onclick="toggleHasCalling('${t.id}', ${!t.hasCalling})">${t.hasCalling?"Clear calling":"Has calling"}</button>
           <button class="btn" onclick="toggleBench('${t.id}', ${!(t.tags||[]).includes("Bench")})">${(t.tags||[]).includes("Bench")?"Remove Bench":"Add Bench"}</button>
+          ${willingBtn}
           <button class="btn" onclick="snoozeSixMonths('${t.id}')">Snooze 6mo</button>
         </div>
       </div>`;
     }).join("");
   }
 
+  // Live search + filters
+  $("#searchInput").addEventListener("input", renderDirectory);
+  $("#filterSelect").addEventListener("change", renderDirectory);
+  $("#sortSelect").addEventListener("change", renderDirectory);
+
   // Quick actions
   window.toggleHasCalling = async(id,val)=>{ await setDoc(doc(colTeachers(),id), {hasCalling:!!val}, {merge:true}); renderAll(); };
+  window.setWilling = async(id,makeWilling)=>{
+    await setDoc(doc(colTeachers(),id), {willingToTeachAgain: !!makeWilling}, {merge:true});
+    renderDirectory();
+  };
   window.toggleBench = async(id,add)=>{
     const dref=doc(colTeachers(),id); const snap=await getDoc(dref); if(!snap.exists()) return;
     const t=snap.data(); const tags=new Set(t.tags||[]); if(add) tags.add("Bench"); else tags.delete("Bench");
@@ -653,12 +676,11 @@
     renderAll();
   };
 
-  // ✅ Allow marking completed even if no teacher is assigned
+  // Allow marking completed even if no teacher is assigned
   window.markAssignmentCompleted = async(assignmentId)=>{
     const now=new Date();
     const aSnap=await getDoc(doc(colAssignments(), assignmentId)); if(!aSnap.exists()) return;
-    const a=aSnap.data();
-    const teacherId=(a.teacherIds||[])[0] || null;
+    const a=aSnap.data(); const teacherId=(a.teacherIds||[])[0] || null;
 
     await setDoc(doc(colAssignments(), assignmentId), { status:"Completed" }, {merge:true});
     if(teacherId){
@@ -668,7 +690,7 @@
     renderAll();
   };
 
-  // 🔓 Expose the picker to the page (so onclick works)
+  // Expose picker to page
   window.openTeacherPicker = (assignmentId)=>{
     pickerState.assignmentId = assignmentId;
     const el = document.getElementById("picker");
@@ -700,6 +722,7 @@
     const showCalling = document.getElementById("pickerShowCalling").checked;
     const list = document.getElementById("pickerList");
     const arr = pickerState.teachers.filter(t=>{
+      if(!t || !t.name || !String(t.name).trim()) return false;
       if(!t.active) return false;
       if(!showCalling && t.hasCalling) return false;
       const hay = [(t.name||""),(t.email||""),(t.phone||"").replace(/\D+/g,"")].join(" ").toLowerCase();
@@ -714,7 +737,7 @@
       return `
         <div class="item">
           <div>
-            <div><b>${t.name||"(No name)"}:</b> <span class="meta">Last taught ${lastT} • Last asked ${lastA}</span> ${calling} ${bench}</div>
+            <div><b>${t.name}:</b> <span class="meta">Last taught ${lastT} • Last asked ${lastA}</span> ${calling} ${bench}</div>
             <div class="meta">${t.email||""} ${t.phone? "• "+t.phone:""}</div>
           </div>
           <div class="row">
