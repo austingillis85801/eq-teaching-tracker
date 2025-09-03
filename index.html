@@ -37,8 +37,7 @@
     .sticky-tools{position:sticky;top:64px;background:var(--bg);padding:8px 0;z-index:4}
     .small{font-size:12px}
     .hidden{display:none}
-
-    /* Teacher Picker Modal */
+    /* Modal */
     .overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);display:flex;align-items:center;justify-content:center;z-index:50}
     .modal{width:min(720px,92vw);background:#fff;border:1px solid #e5e8ef;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.15);}
     .modal .hd{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid #eef2f7}
@@ -89,7 +88,6 @@
   <section id="schedule">
     <div class="card">
       <h3>Lesson Schedule</h3>
-      <div class="muted small">Only 2nd & 4th Sundays are expected. Others will show a ⚠ warning.</div>
       <table id="scheduleTable">
         <thead><tr><th>Date</th><th>Talk Title</th><th>Status</th><th>Teacher</th><th>Actions</th></tr></thead>
         <tbody></tbody>
@@ -127,7 +125,6 @@
     <div class="grid">
       <div class="card">
         <h3>Import XLSX/CSV</h3>
-        <div class="muted small">Accepts your “EQ_Teacher_Tracker_Complete.xlsx” (Teacher Tracker, Lesson Schedule, Sample Message) and Elders roster file.</div>
         <div class="row">
           <div>
             <label class="small">Upload Teacher Tracker workbook</label><br>
@@ -203,6 +200,7 @@
   // Helpers
   const $  = (s)=>document.querySelector(s);
   const $$ = (s)=>Array.from(document.querySelectorAll(s));
+  const setIf = (id,val)=>{ const el=document.getElementById(id); if(el) el.value=val; };
   function fmtDate(d){ if(!d) return ""; const dt=(d instanceof Date)?d:new Date(d); return dt.toISOString().slice(0,10); }
   function daysSince(d){ if(!d) return 9999; const dt=(d instanceof Date)?d:new Date(d); return Math.floor((Date.now()-dt.getTime())/86400000); }
   function phoneDigits(p){ return (p||"").replace(/\D+/g,""); }
@@ -230,12 +228,8 @@
     const email = prompt("Email to sign in:");
     const pass  = prompt("Password:");
     if(!email||!pass) return;
-    try{
-      await signInWithEmailAndPassword(auth, email.trim(), pass);
-    }catch(e){
-      alert("Sign-in failed: " + (e?.message||e));
-      console.error(e);
-    }
+    try{ await signInWithEmailAndPassword(auth, email.trim(), pass); }
+    catch(e){ alert("Sign-in failed: " + (e?.message||e)); console.error(e); }
   });
 
   $("#signUpBtn").addEventListener("click", async ()=>{
@@ -244,23 +238,19 @@
     if(!email||!pass) return;
     try{
       await createUserWithEmailAndPassword(auth, email.trim(), pass);
-      alert("Account created. You're now signed in.");
-      // Make sure settings doc exists
       await setDoc(doc(db,"users",auth.currentUser.uid,"settings","app"), {
         meetingDay:"Sunday", meetingTime:"11:10 AM",
         askCooldownDays:60, retryNoResponseDays:60,
         textTemplate:"Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!"
       }, {merge:true});
-    }catch(e){
-      alert("Create account failed: " + (e?.message||e));
-      console.error(e);
-    }
+      alert("Account created. You're now signed in.");
+    }catch(e){ alert("Create account failed: " + (e?.message||e)); console.error(e); }
   });
 
   $("#signOutBtn").addEventListener("click", ()=>signOut(auth).catch(console.error));
 
   // State & refs
-  let currentUser = null;
+  let currentUser=null;
   let settings={
     meetingDay:"Sunday",
     meetingTime:"11:10 AM",
@@ -272,32 +262,27 @@
   function colAssignments(){ return collection(db,"users",currentUser?.uid,"assignments"); }
   function docSettings(){ return doc(db,"users",currentUser?.uid,"settings","app"); }
 
-  // Settings load/save
+  // Settings load/save (FIXED: no assignment to optional chain)
   async function loadSettings(){
     const snap=await getDoc(docSettings());
     if(snap.exists()) settings=Object.assign(settings,snap.data());
-    $("#textTemplate")?.value = settings.textTemplate;
-    $("#meetingTime")?.value  = settings.meetingTime;
-    $("#askCooldown")?.value  = settings.askCooldownDays;
-    $("#retryDays")?.value    = settings.retryNoResponseDays;
+    setIf("textTemplate", settings.textTemplate);
+    setIf("meetingTime", settings.meetingTime);
+    setIf("askCooldown", settings.askCooldownDays);
+    setIf("retryDays", settings.retryNoResponseDays);
   }
 
-  // Auth listener (this is what flips the UI)
+  // Auth listener (updates header & renders)
   onAuthStateChanged(auth, async (u)=>{
     currentUser=u||null;
-
-    // Badge + buttons
     $("#userBadge").textContent = u ? `Signed in as ${u.email||u.uid}` : "";
     $("#userBadge").classList.toggle("hidden", !u);
     $("#signInBtn").classList.toggle("hidden", !!u);
     $("#signUpBtn").classList.toggle("hidden",  !!u);
     $("#signOutBtn").classList.toggle("hidden", !u);
 
-    if(u){
-      await loadSettings();
-      await renderAll();
-    }else{
-      // clear screens when signed out
+    if(u){ await loadSettings(); await renderAll(); }
+    else{
       $("#recentlyAsked").innerHTML="";
       $("#unassignedList").innerHTML="";
       $("#suggestions").innerHTML="";
@@ -306,7 +291,7 @@
     }
   });
 
-  // Settings save buttons (found in Templates & Settings tab)
+  // Settings save (delegated)
   document.addEventListener("click",(e)=>{
     if(e.target?.id==="saveTemplateBtn"){
       settings.textTemplate=$("#textTemplate").value.trim();
@@ -314,7 +299,7 @@
     }
     if(e.target?.id==="resetTemplateBtn"){
       settings.textTemplate="Hey {FirstName}, would you be willing to teach on {Date} about “{TalkTitle}”? We meet at {MeetingTime}. Let me know!";
-      $("#textTemplate").value=settings.textTemplate;
+      setIf("textTemplate", settings.textTemplate);
       setDoc(docSettings(), settings, {merge:true});
     }
     if(e.target?.id==="saveSettingsBtn"){
@@ -326,7 +311,7 @@
     }
   });
 
-  // Import helpers
+  // File helpers
   function parseDateFlexible(v){
     if(!v) return null;
     if(v instanceof Date) return v;
@@ -465,7 +450,7 @@
   async function fetchTeachers(){ const arr=[]; const snap=await getDocs(colTeachers()); snap.forEach(d=>arr.push({id:d.id,...d.data()})); return arr; }
   async function fetchAssignments(){ const arr=[]; const snap=await getDocs(colAssignments()); snap.forEach(d=>arr.push({id:d.id,...d.data()})); return arr.sort((a,b)=>a.date.localeCompare(b.date)); }
 
-  // Eligibility & scoring (unchanged)
+  // Eligibility & scoring
   function eligibleTeacher(t){
     if(!t.active) return false;
     if(t.hasCalling) return false;
@@ -609,7 +594,7 @@
     }).join("");
   }
 
-  // Actions
+  // Quick actions
   window.toggleHasCalling = async(id,val)=>{ await setDoc(doc(colTeachers(),id), {hasCalling:!!val}, {merge:true}); renderAll(); };
   window.toggleBench = async(id,add)=>{
     const dref=doc(colTeachers(),id); const snap=await getDoc(dref); if(!snap.exists()) return;
