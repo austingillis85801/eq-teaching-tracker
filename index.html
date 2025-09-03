@@ -108,7 +108,7 @@
             <select id="filterSelect">
               <option value="all">All</option>
               <option value="active">Active only</option>
-              <option value="hasCalling">Has calling</option>
+              <option value="noCalling">No calling (eligible)</option>
               <option value="bench">Bench tag</option>
             </select>
             <select id="sortSelect">
@@ -156,7 +156,7 @@
     </div>
   </section>
 
-  <!-- SETTINGS (the missing piece) -->
+  <!-- SETTINGS -->
   <section id="settings">
     <div class="grid">
       <div class="card">
@@ -508,7 +508,7 @@
 
   // Eligibility & scoring
   function eligibleTeacher(t){
-    if(!t || !t.name || !String(t.name).trim()) return false; // hide nameless
+    if(!t || !t.name || !String(t.name).trim()) return false;
     if(!t.active) return false;
     if(t.hasCalling) return false;
     if(t.willingToTeachAgain===false) return false;
@@ -628,9 +628,10 @@
     let arr=teachers.slice();
     arr = arr.filter(t=> t && t.name && String(t.name).trim());
 
+    // NEW: filter by "noCalling"
     arr = arr.filter(t=>{
       if(filter==="active" && !t.active) return false;
-      if(filter==="hasCalling" && !t.hasCalling) return false;
+      if(filter==="noCalling" && t.hasCalling) return false;   // show only people without callings
       if(filter==="bench" && !(t.tags||[]).includes("Bench")) return false;
       const hay=[t.name||"", t.email||"", phoneDigits(t.phone||"")].join(" ").toLowerCase();
       return hay.includes(q);
