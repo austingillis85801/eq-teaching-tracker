@@ -34,9 +34,9 @@
     .btn{display:inline-flex;align-items:center;gap:6px;padding:8px 10px;border-radius:10px;border:1px solid #ccd3e0;background:#fff;cursor:pointer}
     .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
     .btn.danger{border-color:var(--red);color:#d44545;background:#fff}
-    input,select,textarea{font-size:16px;padding:8px;border:1px solid #ccd3e0;border-radius:10px;background:#fff}
+    input,select,textarea{font-size:16px;padding:8px;border:1px solid #ccd3e0;border-radius:10px;background:#fff; touch-action:manipulation;}
     table{width:100%;border-collapse:collapse}
-    th,td{padding:8px;border-bottom:1px solid #eef2f7;text-align:left}
+    th,td{padding:8px;border-bottom:1px solid #eef2f7;text-align:left;vertical-align:top}
     .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #ccd3e0;font-size:12px}
     .pill.green{background:#ebf7f1;border-color:#bde6cf;color:#107a47}
     .pill.red{background:#fdecec;border-color:#f6b1b1;color:#a92d2d}
@@ -224,7 +224,7 @@
   import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
   import { initializeFirestore, persistentLocalCache, collection, doc, getDoc, getDocs, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
-  /* ==== YOUR FIREBASE CONFIG (from you) ==== */
+  /* ==== YOUR FIREBASE CONFIG ==== */
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyAhCxANql5AXYFq8Zi4tDI4Mu2b5AsejUY",
     authDomain: "elders-teaching-assignments.firebaseapp.com",
@@ -243,7 +243,7 @@
   // Helpers
   const $  = (s)=>document.querySelector(s);
   const $$ = (s)=>Array.from(document.querySelectorAll(s));
-  const setIf = (id,val)=>{ const el=document.getElementById(id); if(el) el.value=val; };
+  const setIf = (id,val)=>{ const el=document.getElementById(id); if(el!=null) el.value=val; };
   function fmtDate(d){ if(!d) return ""; const dt=(d instanceof Date)?d:new Date(d); return dt.toISOString().slice(0,10); }
   function prettyDate(iso){
     if(!iso) return "";
@@ -626,16 +626,18 @@
       const warn=isSecondOrFourthSunday(a.date)? "": "<span class='pill amber'>⚠</span>";
       const isDone = a.status==="Completed";
       const talkDisplay = (a.talkSpeaker && a.talkTitle) ? `${a.talkSpeaker} — ${a.talkTitle}` : (a.talkTitle || a.talkSpeaker || "");
+      const hasTeacher = !!(a.teacherIds && a.teacherIds.length);
       const tr=document.createElement("tr");
       tr.innerHTML = `
         <td>${a.date} ${warn}</td>
         <td>${talkDisplay}</td>
         <td>${a.status||"Unassigned"}</td>
         <td>${names.join(", ")||"—"}</td>
-        <td>
+        <td class="row" style="gap:6px">
           <button class="btn" onclick="quickAssign('${a.id}')">Suggest</button>
           <button class="btn" onclick="openTeacherPicker('${a.id}')">Pick</button>
           <button class="btn" onclick="toggleCompleted('${a.id}')">${isDone?"Undo completed":"Mark completed"}</button>
+          ${hasTeacher ? `<button class="btn danger" onclick="unassign('${a.id}')">Unassign</button>` : ""}
         </td>`;
       tbody.appendChild(tr);
     }
@@ -698,23 +700,20 @@
   $("#filterSelect").addEventListener("change", renderDirectory);
   $("#sortSelect").addEventListener("change", renderDirectory);
 
-  // Quick actions / toggles
-  window.toggleHasCalling = async(id,val)=>{ await setDoc(doc(colTeachers(),id), {hasCalling:!!val}, {merge:true}); renderAll(); };
-  window.setWilling = async(id,makeWilling)=>{
-    await setDoc(doc(colTeachers(),id), {willingToTeachAgain: !!makeWilling}, {merge:true});
-    renderDirectory();
-  };
+  // Quick actions / toggles (now refresh ALL views so Next Up updates immediately)
+  window.toggleHasCalling = async(id,val)=>{ await setDoc(doc(colTeachers(),id), {hasCalling:!!val}, {merge:true}); await renderAll(); };
+  window.setWilling = async(id,makeWilling)=>{ await setDoc(doc(colTeachers(),id), {willingToTeachAgain: !!makeWilling}, {merge:true}); await renderAll(); };
   window.toggleBench = async(id,add)=>{
     const dref=doc(colTeachers(),id); const snap=await getDoc(dref); if(!snap.exists()) return;
     const t=snap.data(); const tags=new Set(t.tags||[]); if(add) tags.add("Bench"); else tags.delete("Bench");
-    await setDoc(dref, {tags:Array.from(tags)}, {merge:true}); renderAll();
+    await setDoc(dref, {tags:Array.from(tags)}, {merge:true}); await renderAll();
   };
   window.toggleSnooze = async(id)=>{
     const dref=doc(colTeachers(),id); const snap=await getDoc(dref); if(!snap.exists()) return;
     const t=snap.data();
     if(isSnoozed(t)){ await setDoc(dref, {snoozeUntil:null}, {merge:true}); }
     else{ const until=new Date(Date.now()+180*86400000); await setDoc(dref, {snoozeUntil:until}, {merge:true}); }
-    renderDirectory();
+    await renderAll();
   };
   window.suggestTeacherFor = async(assignId, iso)=>{
     const teachers=await fetchTeachers();
@@ -802,6 +801,13 @@
     renderSchedule();
   };
 
+  // NEW: Unassign
+  window.unassign = async(assignmentId)=>{
+    const aRef = doc(colAssignments(), assignmentId);
+    await setDoc(aRef, {teacherIds:[], teacherNames:[], status:"Unassigned", askedAt:null, confirmedAt:null}, {merge:true});
+    renderSchedule();
+  };
+
   // Picker
   window.openTeacherPicker = (assignmentId)=>{
     pickerState.assignmentId = assignmentId;
@@ -815,6 +821,9 @@
       pickerState.teachers = await fetchTeachers();
       renderPickerList();
       el.classList.remove("hidden");
+      // Focus search on open (helps mobile)
+      const ps = document.getElementById("pickerSearch");
+      setTimeout(()=> ps && ps.focus({preventScroll:true}), 150);
     })();
   };
 
@@ -868,7 +877,24 @@
     closeTeacherPicker(); renderAll();
   };
 
-  async function renderAll(){ await Promise.all([renderNextUp(), renderSchedule(), renderDirectory()]); }
+  async function renderAll(){ await Promise.all([renderNextUp(), renderSchedule(), renderDirectory()]); wireTouchFocus(); }
+
+  // --- iOS keyboard helper ---
+  // Make sure tapping inputs/textarea/select always focuses (helps some iOS cases)
+  function wireTouchFocus(){
+    document.removeEventListener("touchend", _focusOnTouch, {capture:true});
+    document.addEventListener("touchend", _focusOnTouch, {passive:true, capture:true});
+  }
+  function _focusOnTouch(e){
+    const t = e.target;
+    if(!t) return;
+    if(t.tagName==="INPUT" || t.tagName==="TEXTAREA" || t.tagName==="SELECT"){
+      if(document.activeElement !== t){
+        try { t.focus({preventScroll:true}); } catch(_) { t.focus(); }
+      }
+    }
+  }
+  wireTouchFocus();
 
   // Register service worker with cache-bust for iOS
   if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js?v=3").catch(()=>{}); }
