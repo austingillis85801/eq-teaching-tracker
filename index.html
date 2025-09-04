@@ -4,8 +4,16 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
   <title>EQ Teacher Tracker</title>
-  <link rel="manifest" href="manifest.webmanifest">
+
+  <!-- Manifest (cache-busted so iOS A2HS uses your /eq-teaching-tracker/ path) -->
+  <link rel="manifest" href="manifest.webmanifest?v=3">
+
+  <!-- iOS Add-to-Home-Screen helpers -->
+  <link rel="apple-touch-icon" href="./icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="EQ Teacher">
   <meta name="theme-color" content="#145AFF">
+
   <style>
     :root{ --bg:#f7f9fc;--fg:#0b1628;--muted:#657089;--accent:#145AFF;--card:#ffffff;--red:#d44545;--green:#1d9a5b;--amber:#b97a00; }
     *{box-sizing:border-box}
@@ -34,7 +42,7 @@
     .pill.red{background:#fdecec;border-color:#f6b1b1;color:#a92d2d}
     .pill.amber{background:#fff4e0;border-color:#ffd69a;color:#8a5a00}
     .grid{display:grid;grid-template-columns:repeat(auto-fit, minmax(260px, 1fr));gap:12px}
-    .tools{position:static}
+    .tools{position:static} /* better scrolling on mobile */
     .small{font-size:12px}
     .hidden{display:none}
 
@@ -210,13 +218,13 @@
 <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-<!-- Firebase (v10, ESM modules) -->
+<!-- Firebase (v10, ESM modules) + App -->
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js";
   import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, signOut, createUserWithEmailAndPassword } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-auth.js";
   import { initializeFirestore, persistentLocalCache, collection, doc, getDoc, getDocs, setDoc, deleteDoc } from "https://www.gstatic.com/firebasejs/10.12.4/firebase-firestore.js";
 
-  /* ==== YOUR FIREBASE CONFIG ==== */
+  /* ==== YOUR FIREBASE CONFIG (from you) ==== */
   const FIREBASE_CONFIG = {
     apiKey: "AIzaSyAhCxANql5AXYFq8Zi4tDI4Mu2b5AsejUY",
     authDomain: "elders-teaching-assignments.firebaseapp.com",
@@ -320,7 +328,6 @@
     setIf("retryDays", settings.retryNoResponseDays);
   }
 
-  // Bind settings buttons
   function bindSettingsButtons(){
     const saveT = $("#saveTemplateBtn");
     const resetT = $("#resetTemplateBtn");
@@ -368,7 +375,7 @@
   function parseDateFlexible(v){
     if(!v) return null;
     if(v instanceof Date) return v;
-    if(typeof v==="number"){ return new Date(Math.round((v-25569)*86400)*1000); }
+    if(typeof v==="number"){ return new Date(Math.round((v-25569)*86400)*1000); } // Excel serial
     const d=new Date(String(v).trim());
     return isNaN(d)? null : d;
   }
@@ -718,6 +725,11 @@
     alert("Top suggestion for "+iso+": "+(top.name||top.id));
     renderAll();
   };
+  window.quickAssign = async(assignmentId)=>{
+    const aSnap=await getDoc(doc(colAssignments(), assignmentId)); if(!aSnap.exists()) return;
+    const a=aSnap.data();
+    await suggestTeacherFor(assignmentId, a.date);
+  };
 
   // SMS template support (new placeholders)
   function buildSmsBody(name,dateIso,title,speaker){
@@ -858,7 +870,8 @@
 
   async function renderAll(){ await Promise.all([renderNextUp(), renderSchedule(), renderDirectory()]); }
 
-  if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+  // Register service worker with cache-bust for iOS
+  if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js?v=3").catch(()=>{}); }
 </script>
 </body>
 </html>
