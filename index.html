@@ -5,10 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"/>
   <title>EQ Teacher Tracker</title>
 
-  <!-- Manifest (cache-busted so iOS A2HS uses your /eq-teaching-tracker/ path) -->
+  <!-- Manifest (cache-busted so iOS A2HS sticks to /eq-teaching-tracker/) -->
   <link rel="manifest" href="manifest.webmanifest?v=3">
-
-  <!-- iOS Add-to-Home-Screen helpers -->
   <link rel="apple-touch-icon" href="./icons/icon-192.png">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="EQ Teacher">
@@ -55,6 +53,25 @@
     .item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px dashed #eef2f7}
     .item .meta{font-size:12px;color:#657089}
     .overlay.hidden{display:none!important;}
+
+    /* -------- Responsive schedule table → card rows -------- */
+    @media (max-width: 760px){
+      #scheduleTable thead{display:none}
+      #scheduleTable tr{
+        display:block;
+        background:#fff;border:1px solid #e5e8ef;border-radius:12px;margin:12px 0;
+      }
+      #scheduleTable td{
+        display:flex;justify-content:space-between;gap:12px;
+        padding:10px 12px;border-bottom:1px dashed #eef2f7;
+      }
+      #scheduleTable td:last-child{border-bottom:0}
+      #scheduleTable td::before{
+        content:attr(data-label);
+        font-weight:600;color:var(--muted);min-width:130px;
+      }
+      #scheduleTable td .row{flex-wrap:wrap}
+    }
   </style>
 </head>
 <body>
@@ -170,7 +187,7 @@
       <div class="card">
         <h3>Message template</h3>
         <div class="muted small" style="margin-bottom:6px">
-          Placeholders you can use: <code>{FirstName}</code>, <code>{LastName}</code>, <code>{Date}</code>, <code>{NextTeachSundayPretty}</code>, <code>{TalkTitle}</code>, <code>{TalkSpeaker}</code>, <code>{MeetingTime}</code>.
+          Placeholders: <code>{FirstName}</code>, <code>{LastName}</code>, <code>{Date}</code>, <code>{NextTeachSundayPretty}</code>, <code>{TalkTitle}</code>, <code>{TalkSpeaker}</code>, <code>{MeetingTime}</code>.
         </div>
         <textarea id="textTemplate" rows="6" style="width:100%"></textarea>
         <div class="row" style="margin-top:8px">
@@ -245,29 +262,12 @@
   const $$ = (s)=>Array.from(document.querySelectorAll(s));
   const setIf = (id,val)=>{ const el=document.getElementById(id); if(el!=null) el.value=val; };
   function fmtDate(d){ if(!d) return ""; const dt=(d instanceof Date)?d:new Date(d); return dt.toISOString().slice(0,10); }
-  function prettyDate(iso){
-    if(!iso) return "";
-    const d=new Date(iso+"T12:00:00");
-    return d.toLocaleDateString(undefined,{weekday:"long", month:"long", day:"numeric"});
-  }
+  function prettyDate(iso){ if(!iso) return ""; const d=new Date(iso+"T12:00:00"); return d.toLocaleDateString(undefined,{weekday:"long", month:"long", day:"numeric"}); }
   function daysSince(d){ if(!d) return 9999; const dt=(d instanceof Date)?d:new Date(d); return Math.floor((Date.now()-dt.getTime())/86400000); }
   function phoneDigits(p){ return (p||"").replace(/\D+/g,""); }
   function keyFrom(name,email,phone){ return [phoneDigits(phone), String(email||"").toLowerCase().trim(), String(name||"").toLowerCase().trim()].join("|"); }
-  function lastNameFrom(full){
-    if(!full) return "";
-    const s=String(full).trim();
-    if(!s) return "";
-    if(s.includes(",")) return s.split(",")[0].trim();
-    const parts=s.split(/\s+/); return parts[parts.length-1]||s;
-  }
-  function isSecondOrFourthSunday(iso){
-    const d = new Date(iso+"T12:00:00");
-    if(d.getDay()!==0) return false;
-    const first=new Date(d.getFullYear(), d.getMonth(), 1);
-    const firstSun=1+((7-first.getDay())%7);
-    const n=Math.floor((d.getDate()-firstSun)/7)+1;
-    return (n===2 || n===4);
-  }
+  function lastNameFrom(full){ if(!full) return ""; const s=String(full).trim(); if(!s) return ""; if(s.includes(",")) return s.split(",")[0].trim(); const parts=s.split(/\s+/); return parts[parts.length-1]||s; }
+  function isSecondOrFourthSunday(iso){ const d = new Date(iso+"T12:00:00"); if(d.getDay()!==0) return false; const first=new Date(d.getFullYear(), d.getMonth(), 1); const firstSun=1+((7-first.getDay())%7); const n=Math.floor((d.getDate()-firstSun)/7)+1; return (n===2 || n===4); }
 
   // Tabs
   $$("#tabs button[data-tab]").forEach(b=>b.addEventListener("click",()=>{
@@ -327,7 +327,6 @@
     setIf("askCooldown", settings.askCooldownDays);
     setIf("retryDays", settings.retryNoResponseDays);
   }
-
   function bindSettingsButtons(){
     const saveT = $("#saveTemplateBtn");
     const resetT = $("#resetTemplateBtn");
@@ -371,7 +370,7 @@
     }
   });
 
-  // File helpers (imports)
+  // File helpers
   function parseDateFlexible(v){
     if(!v) return null;
     if(v instanceof Date) return v;
@@ -526,7 +525,7 @@
   async function fetchTeachers(){ const arr=[]; const snap=await getDocs(colTeachers()); snap.forEach(d=>arr.push({id:d.id,...d.data()})); return arr; }
   async function fetchAssignments(){ const arr=[]; const snap=await getDocs(colAssignments()); snap.forEach(d=>arr.push({id:d.id,...d.data()})); return arr.sort((a,b)=>a.date.localeCompare(b.date)); }
 
-  // Eligibility & scoring
+  // Eligibility/scoring
   function eligibleTeacher(t){
     if(!t || !t.name || !String(t.name).trim()) return false;
     if(!t.active) return false;
@@ -576,7 +575,7 @@
     }).join("") : `<div class="muted small">No one asked in the last 10 days.</div>`;
 
     const upcoming = assignments
-      .filter(a=> isSecondOrFourthSunday(a.date) && (a.status==="Unassigned" || !a.teacherIds || a.teacherIds.length===0))
+      .filter(a=> isSecondOrFourthSunday(a.date) && (a.status==="Unassigned" || !((a.teacherIds&&a.teacherIds.length)||(a.teacherNames&&a.teacherNames.length))))
       .slice(0,8);
 
     $("#unassignedList").innerHTML = upcoming.length ? upcoming.map(a=>{
@@ -622,22 +621,26 @@
     const tMap=new Map(teachers.map(t=>[t.id,t]));
     const tbody=$("#scheduleTable tbody"); tbody.innerHTML="";
     for(const a of assignments){
-      const names=(a.teacherIds||[]).map(id=> tMap.get(id)?.name || id);
+      const namesId=(a.teacherIds||[]).map(id=> tMap.get(id)?.name || id);
+      const names=(namesId.length? namesId : (a.teacherNames||[]));
       const warn=isSecondOrFourthSunday(a.date)? "": "<span class='pill amber'>⚠</span>";
       const isDone = a.status==="Completed";
       const talkDisplay = (a.talkSpeaker && a.talkTitle) ? `${a.talkSpeaker} — ${a.talkTitle}` : (a.talkTitle || a.talkSpeaker || "");
-      const hasTeacher = !!(a.teacherIds && a.teacherIds.length);
+      const hasTeacher = ((a.teacherIds&&a.teacherIds.length) || (a.teacherNames&&a.teacherNames.length));
+
       const tr=document.createElement("tr");
       tr.innerHTML = `
-        <td>${a.date} ${warn}</td>
-        <td>${talkDisplay}</td>
-        <td>${a.status||"Unassigned"}</td>
-        <td>${names.join(", ")||"—"}</td>
-        <td class="row" style="gap:6px">
-          <button class="btn" onclick="quickAssign('${a.id}')">Suggest</button>
-          <button class="btn" onclick="openTeacherPicker('${a.id}')">Pick</button>
-          <button class="btn" onclick="toggleCompleted('${a.id}')">${isDone?"Undo completed":"Mark completed"}</button>
-          ${hasTeacher ? `<button class="btn danger" onclick="unassign('${a.id}')">Unassign</button>` : ""}
+        <td data-label="Date">${a.date} ${warn}</td>
+        <td data-label="Talk">${talkDisplay||"—"}</td>
+        <td data-label="Status">${a.status||"Unassigned"}</td>
+        <td data-label="Teacher">${(names||[]).join(", ")||"—"}</td>
+        <td data-label="Actions">
+          <div class="row" style="gap:6px">
+            <button class="btn" onclick="quickAssign('${a.id}')">Suggest</button>
+            <button class="btn" onclick="openTeacherPicker('${a.id}')">Pick</button>
+            <button class="btn" onclick="toggleCompleted('${a.id}')">${isDone?"Undo completed":"Mark completed"}</button>
+            ${hasTeacher ? `<button class="btn danger" onclick="unassign('${a.id}')">Unassign</button>` : ""}
+          </div>
         </td>`;
       tbody.appendChild(tr);
     }
@@ -649,8 +652,7 @@
     const filter=$("#filterSelect").value;
     const sort=$("#sortSelect").value;
 
-    let arr=teachers.slice();
-    arr = arr.filter(t=> t && t.name && String(t.name).trim());
+    let arr=teachers.slice().filter(t=> t && t.name && String(t.name).trim());
 
     arr = arr.filter(t=>{
       if(filter==="active" && !t.active) return false;
@@ -700,7 +702,7 @@
   $("#filterSelect").addEventListener("change", renderDirectory);
   $("#sortSelect").addEventListener("change", renderDirectory);
 
-  // Quick actions / toggles (now refresh ALL views so Next Up updates immediately)
+  // Quick actions (refresh all views so Next Up updates immediately)
   window.toggleHasCalling = async(id,val)=>{ await setDoc(doc(colTeachers(),id), {hasCalling:!!val}, {merge:true}); await renderAll(); };
   window.setWilling = async(id,makeWilling)=>{ await setDoc(doc(colTeachers(),id), {willingToTeachAgain: !!makeWilling}, {merge:true}); await renderAll(); };
   window.toggleBench = async(id,add)=>{
@@ -730,7 +732,7 @@
     await suggestTeacherFor(assignmentId, a.date);
   };
 
-  // SMS template support (new placeholders)
+  // SMS template
   function buildSmsBody(name,dateIso,title,speaker){
     const ln = lastNameFrom(name);
     const pretty = prettyDate(dateIso) || "";
@@ -760,35 +762,48 @@
 
   window.openAskForTeacher = async(teacherId)=>{
     const assigns=await fetchAssignments();
-    const target=assigns.find(x=> isSecondOrFourthSunday(x.date) && (x.status==="Unassigned" || !x.teacherIds || x.teacherIds.length===0));
+    const target=assigns.find(x=> isSecondOrFourthSunday(x.date) && (x.status==="Unassigned" || !((x.teacherIds&&x.teacherIds.length)||(x.teacherNames&&x.teacherNames.length))));
     if(!target) return alert("No unassigned lesson found."); await askTeacher(teacherId, target.id);
   };
 
+  // === FIXED: "No response" works even if assignment only stored names ===
   window.markResponse = async(teacherId, type)=>{
-    const now=new Date(); const dref=doc(colTeachers(), teacherId); const snap=await getDoc(dref); if(!snap.exists()) return;
-    const assigns=await fetchAssignments(); const a=assigns.find(x=> (x.teacherIds||[]).includes(teacherId) && (x.status==="Asked" || x.status==="Confirmed"));
-    if(type==="Accepted"){ if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Confirmed", confirmedAt:now}, {merge:true}); } }
-    else if(type==="Declined"){
+    const now=new Date();
+    const tSnap=await getDoc(doc(colTeachers(), teacherId)); if(!tSnap.exists()) return;
+    const t=tSnap.data();
+    const assigns=await fetchAssignments();
+    const a=assigns.find(x=> (
+        (x.status==="Asked" || x.status==="Confirmed") &&
+        ( (x.teacherIds||[]).includes(teacherId) || (x.teacherNames||[]).includes(t.name||"") )
+    ));
+
+    if(type==="Accepted"){
+      if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Confirmed", confirmedAt:now}, {merge:true}); }
+      alert("Marked as confirmed.");
+    } else if(type==="Declined"){
       if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Unassigned", teacherIds:[], teacherNames:[], askedAt:null, confirmedAt:null}, {merge:true}); }
-      await setDoc(dref, { lastAsked: now }, {merge:true});
-    }
-    else if(type==="NoResponse"){
-      await setDoc(dref, { noResponseFlag:true, noResponseAt:now }, {merge:true});
+      await setDoc(doc(colTeachers(), teacherId), { lastAsked: now }, {merge:true});
+      alert("Marked as declined and slot reopened.");
+    } else if(type==="NoResponse"){
+      await setDoc(doc(colTeachers(), teacherId), { noResponseFlag:true, noResponseAt:now }, {merge:true});
       if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Unassigned", teacherIds:[], teacherNames:[], askedAt:null, confirmedAt:null}, {merge:true}); }
+      alert("Logged as no response and put back in queue.");
     }
     renderAll();
   };
 
-  // Toggle completed
+  // Toggle completed (aware of name-only assignments)
   window.toggleCompleted = async(assignmentId)=>{
     const aRef = doc(colAssignments(), assignmentId);
     const aSnap = await getDoc(aRef); if(!aSnap.exists()) return;
     const a = aSnap.data();
+    const hasTeacher = ((a.teacherIds&&a.teacherIds.length) || (a.teacherNames&&a.teacherNames.length));
     if(a.status==="Completed"){
       let newStatus = "Unassigned";
-      if(a.teacherIds && a.teacherIds.length){
+      if(hasTeacher){
         if(a.confirmedAt) newStatus="Confirmed";
         else if(a.askedAt) newStatus="Asked";
+        else newStatus="Unassigned";
       }
       await setDoc(aRef, {status:newStatus}, {merge:true});
     } else {
@@ -801,11 +816,11 @@
     renderSchedule();
   };
 
-  // NEW: Unassign
+  // === NEW: Unassign clears both ids and names and resets status ===
   window.unassign = async(assignmentId)=>{
     const aRef = doc(colAssignments(), assignmentId);
     await setDoc(aRef, {teacherIds:[], teacherNames:[], status:"Unassigned", askedAt:null, confirmedAt:null}, {merge:true});
-    renderSchedule();
+    renderAll();
   };
 
   // Picker
@@ -821,7 +836,6 @@
       pickerState.teachers = await fetchTeachers();
       renderPickerList();
       el.classList.remove("hidden");
-      // Focus search on open (helps mobile)
       const ps = document.getElementById("pickerSearch");
       setTimeout(()=> ps && ps.focus({preventScroll:true}), 150);
     })();
@@ -880,7 +894,6 @@
   async function renderAll(){ await Promise.all([renderNextUp(), renderSchedule(), renderDirectory()]); wireTouchFocus(); }
 
   // --- iOS keyboard helper ---
-  // Make sure tapping inputs/textarea/select always focuses (helps some iOS cases)
   function wireTouchFocus(){
     document.removeEventListener("touchend", _focusOnTouch, {capture:true});
     document.addEventListener("touchend", _focusOnTouch, {passive:true, capture:true});
@@ -896,7 +909,6 @@
   }
   wireTouchFocus();
 
-  // Register service worker with cache-bust for iOS
   if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js?v=3").catch(()=>{}); }
 </script>
 </body>
