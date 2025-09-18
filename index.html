@@ -671,9 +671,9 @@
 
     arr.sort((a,b)=>{
       if(sort==="name") return (a.name||"").localeCompare(b.name||"");
-      if(sort==="lastTaught") return daysSince(a.lastTaught?.toDate? a.lastTaught.toDate():a.lastTaught||0) - daysSince(b.lastTaught?.toDate? b.lastTaught.toDate():b.lastTaught||0);
+      if(sort==="lastTaught") return daysSince(b.lastTaught?.toDate? b.lastTaught.toDate():b.lastTaught||0) - daysSince(a.lastTaught?.toDate? a.lastTaught.toDate():a.lastTaught||0);
       if(sort==="attempts") return (b.attemptsSinceLastTaught||0)-(a.attemptsSinceLastTaught||0);
-      if(sort==="lastAsked") return daysSince(a.lastAsked?.toDate? a.lastAsked.toDate():a.lastAsked||0) - daysSince(b.lastAsked?.toDate? b.lastAsked.toDate():b.lastAsked||0);
+      if(sort==="lastAsked") return daysSince(b.lastAsked?.toDate? b.lastAsked.toDate():b.lastAsked||0) - daysSince(a.lastAsked?.toDate? a.lastAsked.toDate():a.lastAsked||0);
       return 0;
     });
 
