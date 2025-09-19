@@ -23,7 +23,9 @@
     header{position:sticky;top:0;background:var(--card);border-bottom:1px solid #e5e8ef;z-index:5}
     .wrap{max-width:1024px;margin:0 auto;padding:16px}
     h1{font-size:20px;margin:0}
-    nav{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+    nav{display:flex;gap:12px;flex-wrap:wrap;margin-top:8px;align-items:flex-start}
+    nav #tabButtonGroup{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+    nav #authButtonGroup{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-left:auto}
     nav button{border:1px solid #e5e8ef;background:#fff;border-radius:12px;padding:8px 12px;cursor:pointer}
     nav button.active{background:var(--accent);border-color:var(--accent);color:#fff}
     main{padding-bottom:64px}
@@ -47,6 +49,15 @@
     .tools{position:static} /* better scrolling on mobile */
     .small{font-size:12px}
     .hidden{display:none}
+
+    @media (max-width: 640px){
+      nav#tabs{flex-direction:column;gap:12px}
+      nav#tabs #tabButtonGroup{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:4px;margin:-4px 0 0;}
+      nav#tabs #tabButtonGroup button{flex:0 0 auto}
+      nav#tabs #authButtonGroup{flex-direction:column;align-items:stretch;width:100%;gap:8px}
+      nav#tabs #authButtonGroup button{width:100%}
+      nav#tabs #authButtonGroup #userBadge{width:100%;text-align:center}
+    }
 
     /* Screen-reader-only helper for accessible labels */
     .sr-only {
@@ -83,16 +94,19 @@
     <h1>EQ Teacher Tracker</h1>
     <div class="muted small">One teacher per lesson • 2nd & 4th Sundays • Retry after no response: 2 months • Ask cooldown: 2 months (with 6-month snooze)</div>
     <nav id="tabs">
-      <button data-tab="nextup" class="active">Next Up</button>
-      <button data-tab="schedule">Schedule</button>
-      <button data-tab="directory">Directory</button>
-      <button data-tab="import">Import/Export</button>
-      <button data-tab="settings">Templates & Settings</button>
-      <span style="flex:1"></span>
-      <span id="userBadge" class="muted small hidden" style="align-self:center"></span>
-      <button id="signUpBtn">Create account</button>
-      <button id="signInBtn">Sign in</button>
-      <button id="signOutBtn" class="hidden">Sign out</button>
+      <div id="tabButtonGroup">
+        <button data-tab="nextup" class="active">Next Up</button>
+        <button data-tab="schedule">Schedule</button>
+        <button data-tab="directory">Directory</button>
+        <button data-tab="import">Import/Export</button>
+        <button data-tab="settings">Templates & Settings</button>
+      </div>
+      <div id="authButtonGroup">
+        <span id="userBadge" class="muted small hidden" style="align-self:center"></span>
+        <button id="signUpBtn">Create account</button>
+        <button id="signInBtn">Sign in</button>
+        <button id="signOutBtn" class="hidden">Sign out</button>
+      </div>
     </nav>
   </div>
 </header>
