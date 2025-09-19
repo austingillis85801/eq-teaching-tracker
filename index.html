@@ -273,6 +273,21 @@
   function daysSince(d){ if(!d) return 9999; const dt=(d instanceof Date)?d:new Date(d); return Math.floor((Date.now()-dt.getTime())/86400000); }
   function phoneDigits(p){ return (p||"").replace(/\D+/g,""); }
   function keyFrom(name,email,phone){ return [phoneDigits(phone), String(email||"").toLowerCase().trim(), String(name||"").toLowerCase().trim()].join("|"); }
+  function normalizeName(name){
+    if(!name) return "";
+    const original=String(name);
+    const lower=original.toLowerCase();
+    const withoutTitles=lower.replace(/\b(brother|bro\.?)\b/g,"").replace(/\b(sister|sis\.?)\b/g,"").replace(/\b(elder|president|pres\.)\b/g,"");
+    const hasComma=original.includes(",");
+    let cleaned=withoutTitles.replace(/[\.]/g," ").replace(/,/g," ").replace(/\s+/g," ").trim();
+    if(!cleaned) return "";
+    let parts=cleaned.split(" ").filter(Boolean);
+    if(hasComma && parts.length>=2){
+      parts=parts.slice(1).concat(parts[0]);
+    }
+    const combined=parts.join("");
+    return combined.replace(/[^a-z0-9]/g,"");
+  }
   function lastNameFrom(full){ if(!full) return ""; const s=String(full).trim(); if(!s) return ""; if(s.includes(",")) return s.split(",")[0].trim(); const parts=s.split(/\s+/); return parts[parts.length-1]||s; }
   function isSecondOrFourthSunday(iso){ const d = new Date(iso+"T12:00:00"); if(d.getDay()!==0) return false; const first=new Date(d.getFullYear(), d.getMonth(), 1); const firstSun=1+((7-first.getDay())%7); const n=Math.floor((d.getDate()-firstSun)/7)+1; return (n===2 || n===4); }
 
@@ -409,6 +424,30 @@
     const scheduleSheet=sheets["Lesson Schedule"] || sheets["Schedule"] || [];
     const msgSheet=sheets["Sample Message"] || sheets["Message"] || [];
     let imported={teachers:0,assignments:0,template:false};
+    const teacherNameLookup=new Map();
+    let cachedTeacherNameLookup=null;
+
+    const getTeacherIdForName=async (rawName)=>{
+      const norm=normalizeName(rawName);
+      if(!norm) return null;
+      if(teacherNameLookup.has(norm)) return teacherNameLookup.get(norm);
+      if(cachedTeacherNameLookup && cachedTeacherNameLookup.has(norm)) return cachedTeacherNameLookup.get(norm);
+      if(!cachedTeacherNameLookup){
+        cachedTeacherNameLookup=new Map(teacherNameLookup);
+        const snap=await getDocs(colTeachers());
+        snap.forEach(d=>{
+          const data=d.data();
+          const names=[data?.name];
+          for(const nm of names){
+            const normName=normalizeName(nm);
+            if(normName && !cachedTeacherNameLookup.has(normName)){
+              cachedTeacherNameLookup.set(normName, d.id);
+            }
+          }
+        });
+      }
+      return cachedTeacherNameLookup.get(norm)||null;
+    };
 
     if(msgSheet && msgSheet.length){
       const row=msgSheet.find(r=>r.Message)||msgSheet[0];
@@ -437,6 +476,11 @@
         attemptsSinceLastTaught:r["Attempts"]? Number(r["Attempts"])||0:0,
         responseHistory:[],notes,tags
       },{merge:true});
+      const variants=[r["Name"], r["PreferredName"], r["Full Name"]].map(v=>v? String(v).trim():"").filter(Boolean);
+      for(const variant of variants){
+        const norm=normalizeName(variant);
+        if(norm && !teacherNameLookup.has(norm)) teacherNameLookup.set(norm,id);
+      }
       imported.teachers++;
     }
 
@@ -445,13 +489,19 @@
       const iso=fmtDate(date);
       const talkTitle=r["Talk Title"] ?? r["Title"] ?? "";
       const talkSpeaker=r["Talk Speaker"] ?? r["Speaker"] ?? r["General Authority"] ?? "";
-      const teacherAssigned=r["Teacher Assigned"] ?? "";
+      const teacherAssigned=(r["Teacher Assigned"] ?? "").toString().trim();
       const teacherConfirmed=String(r["Teacher Confirmed?"] ?? "").toLowerCase().startsWith("y");
       const status=teacherAssigned ? (teacherConfirmed ? "Confirmed" : "Asked") : "Unassigned";
+      const teacherNames=teacherAssigned ? [teacherAssigned] : [];
+      let teacherIds=[];
+      if(teacherAssigned){
+        const resolvedId=await getTeacherIdForName(teacherAssigned);
+        if(resolvedId) teacherIds=[resolvedId];
+      }
       await setDoc(doc(colAssignments(), iso), {
         date:iso,talkTitle,talkSpeaker,
-        teacherIds: teacherAssigned ? [keyFrom(teacherAssigned,"","")] : [],
-        teacherNames: teacherAssigned ? [teacherAssigned] : [],
+        teacherIds,
+        teacherNames,
         status,askedAt:null,confirmedAt:null,notes:r["Notes"] ?? ""
       }, {merge:true});
       imported.assignments++;
