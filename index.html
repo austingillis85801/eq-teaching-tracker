@@ -30,6 +30,10 @@
     section{display:none}
     section.active{display:block}
     .row{display:flex;gap:12px;flex-wrap:wrap}
+    @media (max-width: 600px) {
+      .tools .row{flex-direction:column}
+      .tools .card{flex:1 1 100%;width:100%}
+    }
     .card{background:var(--card);border:1px solid #e5e8ef;border-radius:14px;padding:12px}
     .card h3{margin:0 0 6px 0;font-size:16px}
     .muted{color:var(--muted);font-size:12px}
