@@ -614,6 +614,7 @@
   // Renders
   async function renderNextUp(){
     const [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
+    const teacherMap=new Map(teachers.map(t=>[t.id,t]));
     const recent = teachers
       .filter(t=>t && t.name)
       .map(t=>({t, ds: t.lastAsked ? daysSince(t.lastAsked.toDate? t.lastAsked.toDate():t.lastAsked):9999}))
@@ -637,8 +638,19 @@
 
     $("#unassignedList").innerHTML = upcoming.length ? upcoming.map(a=>{
       const talkDisplay = (a.talkSpeaker && a.talkTitle) ? `${a.talkSpeaker} — ${a.talkTitle}` : (a.talkTitle || a.talkSpeaker || "");
+      const pendingFromIds=(a.pendingTeacherIds||[]).map(id=>{
+        const raw=teacherMap.get(id)?.name;
+        const clean=raw && String(raw).trim();
+        return clean || id;
+      });
+      const pendingNamesRaw=[...new Set([...(pendingFromIds||[]), ...((a.pendingTeacherNames||[]).map(n=> String(n||"").trim()))])];
+      const pendingNames=pendingNamesRaw.map(n=> String(n||"").trim()).filter(Boolean);
+      const pendingHtml=pendingNames.length ? `<div class="muted small">Pending: ${pendingNames.join(", ")}</div>` : "";
       return `<div class="row" style="align-items:center;justify-content:space-between;border-bottom:1px dashed #eef2f7;padding:6px 0">
-        <div><b>${a.date}</b> — ${talkDisplay||"(No title)"} </div>
+        <div>
+          <div><b>${a.date}</b> — ${talkDisplay||"(No title)"}</div>
+          ${pendingHtml}
+        </div>
         <div class="row">
           <button class="btn primary" onclick="suggestTeacherFor('${a.id}','${a.date}')">Suggest teacher</button>
           <button class="btn" onclick="openTeacherPicker('${a.id}')">Pick teacher</button>
@@ -680,6 +692,14 @@
     for(const a of assignments){
       const namesId=(a.teacherIds||[]).map(id=> tMap.get(id)?.name || id);
       const names=(namesId.length? namesId : (a.teacherNames||[]));
+      const pendingFromIds=(a.pendingTeacherIds||[]).map(id=>{
+        const raw=tMap.get(id)?.name;
+        const clean=raw && String(raw).trim();
+        return clean || id;
+      });
+      const pendingNamesRaw=[...new Set([...(pendingFromIds||[]), ...((a.pendingTeacherNames||[]).map(n=> String(n||"").trim()))])];
+      const pendingNames=pendingNamesRaw.map(n=> String(n||"").trim()).filter(Boolean);
+      const pendingHtml=pendingNames.length ? `<div class="muted small">Pending: ${pendingNames.join(", ")}</div>` : "";
       const warn=isSecondOrFourthSunday(a.date)? "": "<span class='pill amber'>⚠</span>";
       const isDone = a.status==="Completed";
       const talkDisplay = (a.talkSpeaker && a.talkTitle) ? `${a.talkSpeaker} — ${a.talkTitle}` : (a.talkTitle || a.talkSpeaker || "");
@@ -690,7 +710,7 @@
         <td data-label="Date">${a.date} ${warn}</td>
         <td data-label="Talk">${talkDisplay||"—"}</td>
         <td data-label="Status">${a.status||"Unassigned"}</td>
-        <td data-label="Teacher">${(names||[]).join(", ")||"—"}</td>
+        <td data-label="Teacher"><div>${(names||[]).join(", ")||"—"}</div>${pendingHtml}</td>
         <td data-label="Actions">
           <div class="row" style="gap:6px">
             <button class="btn" onclick="quickAssign('${a.id}')">Suggest</button>
@@ -805,11 +825,19 @@
   }
 
   window.askTeacher = async(teacherId, assignmentId)=>{
-    const aSnap=await getDoc(doc(colAssignments(), assignmentId)); if(!aSnap.exists()) return alert("Assignment not found.");
+    const aRef = doc(colAssignments(), assignmentId);
+    const aSnap=await getDoc(aRef); if(!aSnap.exists()) return alert("Assignment not found.");
     const a=aSnap.data(); const tSnap=await getDoc(doc(colTeachers(), teacherId)); if(!tSnap.exists()) return alert("Teacher not found.");
     const t=tSnap.data(); const now=new Date();
+    const cleanName=(t.name && String(t.name).trim()) ? String(t.name).trim() : "";
+    const pendingName=cleanName || teacherId;
+    const nextPendingIds=Array.from(new Set([...(a.pendingTeacherIds||[]), teacherId]));
+    const existingPendingNames=(a.pendingTeacherNames||[]).map(n=> String(n||"").trim()).filter(Boolean);
+    const nextPendingNames=existingPendingNames.includes(pendingName)
+      ? existingPendingNames
+      : existingPendingNames.concat([pendingName]);
     await setDoc(doc(colTeachers(), teacherId), { lastAsked: now, attemptsSinceLastTaught: (t.attemptsSinceLastTaught||0)+1, noResponseFlag:false }, {merge:true});
-    await setDoc(doc(colAssignments(), assignmentId), { status:"Asked", askedAt: now, teacherIds:[teacherId], teacherNames:[t.name||teacherId] }, {merge:true});
+    await setDoc(aRef, { pendingTeacherIds: nextPendingIds, pendingTeacherNames: nextPendingNames }, {merge:true});
     const body=encodeURIComponent(buildSmsBody(t.name, a.date, a.talkTitle, a.talkSpeaker));
     const phone=phoneDigits(t.phone||"");
     const smsHref = phone ? `sms:${phone}?&body=${body}` : `sms:?&body=${body}`;
@@ -818,8 +846,18 @@
   };
 
   window.openAskForTeacher = async(teacherId)=>{
+    const tSnap = await getDoc(doc(colTeachers(), teacherId));
+    const teacherName = tSnap.exists() ? String(tSnap.data().name||"").trim() : "";
     const assigns=await fetchAssignments();
-    const target=assigns.find(x=> isSecondOrFourthSunday(x.date) && (x.status==="Unassigned" || !((x.teacherIds&&x.teacherIds.length)||(x.teacherNames&&x.teacherNames.length))));
+    const target=assigns.find(x=>{
+      if(!isSecondOrFourthSunday(x.date)) return false;
+      const hasTeacher=((x.teacherIds&&x.teacherIds.length)||(x.teacherNames&&x.teacherNames.length));
+      const pendingIds=x.pendingTeacherIds||[];
+      const pendingNames=(x.pendingTeacherNames||[]).map(n=> String(n||"").trim());
+      const teacherMatch=pendingIds.includes(teacherId) || pendingNames.includes(teacherId) || (teacherName && pendingNames.includes(teacherName));
+      const status=(x.status||"Unassigned");
+      return (!hasTeacher && status==="Unassigned" && !teacherMatch);
+    });
     if(!target) return alert("No unassigned lesson found."); await askTeacher(teacherId, target.id);
   };
 
@@ -829,21 +867,72 @@
     const tSnap=await getDoc(doc(colTeachers(), teacherId)); if(!tSnap.exists()) return;
     const t=tSnap.data();
     const assigns=await fetchAssignments();
-    const a=assigns.find(x=> (
-        (x.status==="Asked" || x.status==="Confirmed") &&
-        ( (x.teacherIds||[]).includes(teacherId) || (x.teacherNames||[]).includes(t.name||"") )
-    ));
+    const teacherName=(t.name && String(t.name).trim()) ? String(t.name).trim() : "";
+    const findMatch=(list, nameList)=>{
+      if((list||[]).includes(teacherId)) return true;
+      const cleanedNames=(nameList||[]).map(n=> String(n||"").trim());
+      if(teacherName && cleanedNames.includes(teacherName)) return true;
+      return cleanedNames.includes(teacherId);
+    };
+    let a=assigns.find(x=> findMatch(x.pendingTeacherIds, x.pendingTeacherNames));
+    if(!a){
+      a=assigns.find(x=> findMatch(x.teacherIds, x.teacherNames));
+    }
+    const aRef = a ? doc(colAssignments(), a.id) : null;
+    const pendingNameKey = teacherName || teacherId;
+    const prunePending = (assignment)=>{
+      if(!assignment) return {ids:[], names:[]};
+      const ids=(assignment.pendingTeacherIds||[]).filter(id=>id!==teacherId);
+      const names=(assignment.pendingTeacherNames||[])
+        .map(n=> String(n||"").trim())
+        .filter(name=> name !== pendingNameKey && name !== teacherId);
+      return {ids, names};
+    };
+    const askedAtValue = a?.askedAt || now;
 
     if(type==="Accepted"){
-      if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Confirmed", confirmedAt:now}, {merge:true}); }
+      if(a && aRef){
+        const {ids, names}=prunePending(a);
+        await setDoc(aRef, {
+          status:"Confirmed",
+          askedAt: askedAtValue,
+          confirmedAt: now,
+          teacherIds:[teacherId],
+          teacherNames:[pendingNameKey],
+          pendingTeacherIds: ids,
+          pendingTeacherNames: names
+        }, {merge:true});
+      }
       alert("Marked as confirmed.");
     } else if(type==="Declined"){
-      if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Unassigned", teacherIds:[], teacherNames:[], askedAt:null, confirmedAt:null}, {merge:true}); }
+      if(a && aRef){
+        const {ids, names}=prunePending(a);
+        await setDoc(aRef, {
+          status:"Unassigned",
+          teacherIds:[],
+          teacherNames:[],
+          askedAt:null,
+          confirmedAt:null,
+          pendingTeacherIds: ids,
+          pendingTeacherNames: names
+        }, {merge:true});
+      }
       await setDoc(doc(colTeachers(), teacherId), { lastAsked: now }, {merge:true});
       alert("Marked as declined and slot reopened.");
     } else if(type==="NoResponse"){
       await setDoc(doc(colTeachers(), teacherId), { noResponseFlag:true, noResponseAt:now }, {merge:true});
-      if(a){ await setDoc(doc(colAssignments(), a.id), {status:"Unassigned", teacherIds:[], teacherNames:[], askedAt:null, confirmedAt:null}, {merge:true}); }
+      if(a && aRef){
+        const {ids, names}=prunePending(a);
+        await setDoc(aRef, {
+          status:"Unassigned",
+          teacherIds:[],
+          teacherNames:[],
+          askedAt:null,
+          confirmedAt:null,
+          pendingTeacherIds: ids,
+          pendingTeacherNames: names
+        }, {merge:true});
+      }
       alert("Logged as no response and put back in queue.");
     }
     renderAll();
@@ -862,9 +951,11 @@
         else if(a.askedAt) newStatus="Asked";
         else newStatus="Unassigned";
       }
-      await setDoc(aRef, {status:newStatus}, {merge:true});
+      const update={status:newStatus};
+      if(newStatus==="Unassigned"){ update.pendingTeacherIds=[]; update.pendingTeacherNames=[]; }
+      await setDoc(aRef, update, {merge:true});
     } else {
-      await setDoc(aRef, {status:"Completed"}, {merge:true});
+      await setDoc(aRef, {status:"Completed", pendingTeacherIds:[], pendingTeacherNames:[]}, {merge:true});
       const teacherId=(a.teacherIds||[])[0];
       if(teacherId){
         await setDoc(doc(colTeachers(), teacherId), { lastTaught:new Date(), attemptsSinceLastTaught:0 }, {merge:true});
@@ -876,7 +967,7 @@
   // Unassign clears both ids and names and resets status
   window.unassign = async(assignmentId)=>{
     const aRef = doc(colAssignments(), assignmentId);
-    await setDoc(aRef, {teacherIds:[], teacherNames:[], status:"Unassigned", askedAt:null, confirmedAt:null}, {merge:true});
+    await setDoc(aRef, {teacherIds:[], teacherNames:[], status:"Unassigned", askedAt:null, confirmedAt:null, pendingTeacherIds:[], pendingTeacherNames:[]}, {merge:true});
     renderAll();
   };
 
@@ -943,7 +1034,13 @@
     const id = pickerState.assignmentId; if(!id) return;
     const tSnap = await getDoc(doc(colTeachers(), teacherId)); const t=tSnap.exists()? tSnap.data(): {};
     await setDoc(doc(colAssignments(), id), {
-      teacherIds:[teacherId], teacherNames:[t.name||teacherId], status:"Asked", askedAt:new Date()
+      teacherIds:[teacherId],
+      teacherNames:[t.name||teacherId],
+      status:"Confirmed",
+      askedAt:new Date(),
+      confirmedAt:new Date(),
+      pendingTeacherIds:[],
+      pendingTeacherNames:[]
     }, {merge:true});
     closeTeacherPicker(); renderAll();
   };
