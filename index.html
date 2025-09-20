@@ -30,6 +30,7 @@
     section{display:none}
     section.active{display:block}
     .row{display:flex;gap:12px;flex-wrap:wrap}
+    .tight-buttons{gap:8px}
     @media (max-width: 600px) {
       .tools .row{flex-direction:column}
       .tools .card{flex:1 1 100%;width:100%}
@@ -51,6 +52,17 @@
     .tools{position:static} /* better scrolling on mobile */
     .small{font-size:12px}
     .hidden{display:none}
+
+    @media (max-width: 600px){
+      .tight-buttons{gap:6px}
+      .tight-buttons .btn{
+        padding:8px 10px;
+        min-height:36px;
+        font-size:13px;
+        flex:0 1 auto;
+        white-space:nowrap;
+      }
+    }
 
     /* Screen-reader-only helper for accessible labels */
     .sr-only {
@@ -628,7 +640,7 @@
       const t=x.t;
       return `<div class="row" style="align-items:center;justify-content:space-between;border-bottom:1px dashed #eef2f7;padding:6px 0">
         <div><b>${t.name}:</b> asked ${x.ds}d ago</div>
-        <div class="row">
+        <div class="row tight-buttons">
           <button class="btn" onclick="markResponse('${t.id}','Accepted')">Confirm</button>
           <button class="btn" onclick="markResponse('${t.id}','Declined')">Declined</button>
           <button class="btn danger" onclick="markResponse('${t.id}','NoResponse')">No response</button>
@@ -655,7 +667,7 @@
           <div><b>${a.date}</b> — ${talkDisplay||"(No title)"}</div>
           ${pendingHtml}
         </div>
-        <div class="row">
+        <div class="row tight-buttons">
           <button class="btn primary" onclick="suggestTeacherFor('${a.id}','${a.date}')">Suggest teacher</button>
           <button class="btn" onclick="openTeacherPicker('${a.id}')">Pick teacher</button>
         </div>
@@ -716,7 +728,7 @@
         <td data-label="Status">${a.status||"Unassigned"}</td>
         <td data-label="Teacher"><div>${(names||[]).join(", ")||"—"}</div>${pendingHtml}</td>
         <td data-label="Actions">
-          <div class="row" style="gap:6px">
+          <div class="row tight-buttons">
             <button class="btn" onclick="quickAssign('${a.id}')">Suggest</button>
             <button class="btn" onclick="openTeacherPicker('${a.id}')">Pick</button>
             <button class="btn" onclick="toggleCompleted('${a.id}')">${isDone?"Undo completed":"Mark completed"}</button>
