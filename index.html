@@ -191,6 +191,7 @@
           <button class="btn" id="fixDupBtn">Fix Duplicates</button>
           <button class="btn" id="exportBtn">Export CSV</button>
           <button class="btn" id="backupBtn">Backup JSON</button>
+          <button class="btn" id="nextLessonsTemplateBtn">Download Next Lessons Template</button>
           <button class="btn" id="cleanNamelessBtn">Remove “(No name)”</button>
         </div>
         <div id="importLog" class="small muted" style="margin-top:8px"></div>
@@ -306,6 +307,42 @@
   }
   function lastNameFrom(full){ if(!full) return ""; const s=String(full).trim(); if(!s) return ""; if(s.includes(",")) return s.split(",")[0].trim(); const parts=s.split(/\s+/); return parts[parts.length-1]||s; }
   function isSecondOrFourthSunday(iso){ const d = new Date(iso+"T12:00:00"); if(d.getDay()!==0) return false; const first=new Date(d.getFullYear(), d.getMonth(), 1); const firstSun=1+((7-first.getDay())%7); const n=Math.floor((d.getDate()-firstSun)/7)+1; return (n===2 || n===4); }
+  function sundayLabel(iso){
+    const d=new Date(iso+"T12:00:00");
+    const first=new Date(d.getFullYear(), d.getMonth(), 1);
+    const firstSun=1+((7-first.getDay())%7);
+    const n=Math.floor((d.getDate()-firstSun)/7)+1;
+    if(n===2) return "Second Sunday";
+    if(n===4) return "Fourth Sunday";
+    return "";
+  }
+  function nextLessonDates(existingSet, needed=8){
+    const results=[];
+    const today=new Date();
+    today.setHours(12,0,0,0);
+    const seen=new Set();
+    let cursor=new Date(today.getFullYear(), today.getMonth(), 1, 12);
+    let guard=0;
+    while(results.length<needed && guard<120){
+      guard++;
+      const year=cursor.getFullYear();
+      const month=cursor.getMonth();
+      const daysInMonth=new Date(year, month+1, 0).getDate();
+      for(let day=1; day<=daysInMonth && results.length<needed; day++){
+        const dt=new Date(year, month, day, 12);
+        if(dt<today) continue;
+        if(dt.getDay()!==0) continue;
+        const iso=fmtDate(dt);
+        if(!isSecondOrFourthSunday(iso)) continue;
+        if(existingSet.has(iso)) continue;
+        if(seen.has(iso)) continue;
+        seen.add(iso);
+        results.push({date:iso,label:sundayLabel(iso)});
+      }
+      cursor.setMonth(cursor.getMonth()+1);
+    }
+    return results;
+  }
 
   // Tabs
   $$("#tabs button[data-tab]").forEach(b=>b.addEventListener("click",()=>{
@@ -577,6 +614,36 @@
     const payload=JSON.stringify({settings, teachers, assignments:assigns}, null, 2);
     const blob=new Blob([payload],{type:"application/json"}); const a=document.createElement("a");
     a.href=URL.createObjectURL(blob); a.download="backup.json"; a.click();
+  });
+  $("#nextLessonsTemplateBtn").addEventListener("click", async()=>{
+    if(!currentUser) return alert("Sign in first.");
+    const assignments=await fetchAssignments();
+    const existing=new Set(assignments.map(a=>a.date));
+    const upcoming=nextLessonDates(existing, 8);
+    if(!upcoming.length){
+      $("#importLog").textContent="All upcoming 2nd/4th Sundays already scheduled.";
+      alert("Nothing new to add — all upcoming 2nd/4th Sundays are on the schedule.");
+      return;
+    }
+    const columns=["Date","Talk Title","Talk Speaker","Teacher Assigned","Teacher Confirmed?","Notes"];
+    const rows=upcoming.map(item=>({
+      "Date":item.date,
+      "Talk Title":"",
+      "Talk Speaker":"",
+      "Teacher Assigned":"",
+      "Teacher Confirmed?":"",
+      "Notes":item.label
+    }));
+    const worksheet=XLSX.utils.json_to_sheet(rows,{header:columns});
+    const workbook=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Next Lessons");
+    const wbout=XLSX.write(workbook,{bookType:"xlsx",type:"array"});
+    const blob=new Blob([wbout],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="next_lessons_template.xlsx";
+    a.click();
+    $("#importLog").textContent=`Created template with ${rows.length} upcoming lessons.`;
   });
   $("#cleanNamelessBtn").addEventListener("click", async()=>{
     if(!currentUser) return alert("Sign in first.");
