@@ -44,6 +44,8 @@
     input,select,textarea{font-size:16px;padding:8px;border:1px solid #ccd3e0;border-radius:10px;background:#fff; touch-action:manipulation;}
     table{width:100%;border-collapse:collapse}
     th,td{padding:8px;border-bottom:1px solid #eef2f7;text-align:left;vertical-align:top}
+    #scheduleTable .section-header th{background:#eef4ff;color:var(--muted);text-transform:uppercase;font-size:11px;letter-spacing:0.05em;border-bottom:1px solid #d9e2ff;text-align:left}
+    #scheduleTable .empty td{text-align:center;color:var(--muted)}
     .pill{display:inline-block;padding:2px 8px;border-radius:999px;border:1px solid #ccd3e0;font-size:12px}
     .pill.green{background:#ebf7f1;border-color:#bde6cf;color:#107a47}
     .pill.red{background:#fdecec;border-color:#f6b1b1;color:#a92d2d}
@@ -137,7 +139,8 @@
       <h3>Lesson Schedule</h3>
       <table id="scheduleTable">
         <thead><tr><th>Date</th><th>Talk</th><th>Status</th><th>Teacher</th><th>Actions</th></tr></thead>
-        <tbody></tbody>
+        <tbody id="scheduleUpcoming"></tbody>
+        <tbody id="schedulePast"></tbody>
       </table>
     </div>
   </section>
@@ -777,39 +780,82 @@
   async function renderSchedule(){
     const [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
     const tMap=new Map(teachers.map(t=>[t.id,t]));
-    const tbody=$("#scheduleTable tbody"); tbody.innerHTML="";
-    for(const a of assignments){
-      const namesId=(a.teacherIds||[]).map(id=> tMap.get(id)?.name || id);
-      const names=(namesId.length? namesId : (a.teacherNames||[]));
-      const pendingFromIds=(a.pendingTeacherIds||[]).map(id=>{
-        const raw=tMap.get(id)?.name;
-        const clean=raw && String(raw).trim();
-        return clean || id;
-      });
-      const pendingNamesRaw=[...new Set([...(pendingFromIds||[]), ...((a.pendingTeacherNames||[]).map(n=> String(n||"").trim()))])];
-      const pendingNames=pendingNamesRaw.map(n=> String(n||"").trim()).filter(Boolean);
-      const pendingHtml=pendingNames.length ? `<div class="muted small">Pending: ${pendingNames.join(", ")}</div>` : "";
-      const warn=isSecondOrFourthSunday(a.date)? "": "<span class='pill amber'>⚠</span>";
-      const isDone = a.status==="Completed";
-      const talkDisplay = (a.talkSpeaker && a.talkTitle) ? `${a.talkSpeaker} — ${a.talkTitle}` : (a.talkTitle || a.talkSpeaker || "");
-      const hasTeacher = ((a.teacherIds&&a.teacherIds.length) || (a.teacherNames&&a.teacherNames.length));
+    const upcomingBody=$("#scheduleUpcoming");
+    const pastBody=$("#schedulePast");
+    upcomingBody.innerHTML="";
+    pastBody.innerHTML="";
 
-      const tr=document.createElement("tr");
-      tr.innerHTML = `
-        <td data-label="Date">${a.date} ${warn}</td>
-        <td data-label="Talk">${talkDisplay||"—"}</td>
-        <td data-label="Status">${a.status||"Unassigned"}</td>
-        <td data-label="Teacher"><div>${(names||[]).join(", ")||"—"}</div>${pendingHtml}</td>
-        <td data-label="Actions">
-          <div class="row tight-buttons">
-            <button class="btn" onclick="quickAssign('${a.id}')">Suggest</button>
-            <button class="btn" onclick="openTeacherPicker('${a.id}')">Pick</button>
-            <button class="btn" onclick="toggleCompleted('${a.id}')">${isDone?"Undo completed":"Mark completed"}</button>
-            ${hasTeacher ? `<button class="btn danger" onclick="unassign('${a.id}')">Unassign</button>` : ""}
-          </div>
-        </td>`;
-      tbody.appendChild(tr);
+    const today=new Date();
+    const todayMid=new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12, 0, 0, 0);
+
+    const buckets={
+      upcoming:[],
+      past:[]
+    };
+
+    for(const a of assignments){
+      const lessonDate=new Date(`${a.date}T12:00:00`);
+      const time=lessonDate.valueOf();
+      if(!Number.isNaN(time) && lessonDate < todayMid){
+        buckets.past.push({assignment:a, lessonDate, time});
+      }else{
+        buckets.upcoming.push({assignment:a, lessonDate, time});
+      }
     }
+
+    const upcomingSortValue=item=> Number.isFinite(item.time) ? item.time : Number.POSITIVE_INFINITY;
+    const pastSortValue=item=> Number.isFinite(item.time) ? item.time : Number.NEGATIVE_INFINITY;
+    buckets.upcoming.sort((a,b)=> upcomingSortValue(a) - upcomingSortValue(b));
+    buckets.past.sort((a,b)=> pastSortValue(b) - pastSortValue(a));
+
+    const renderRows=(list, tbody, title, emptyMessage)=>{
+      const header=document.createElement("tr");
+      header.className="section-header";
+      header.innerHTML=`<th colspan="5">${title}</th>`;
+      tbody.appendChild(header);
+      if(list.length){
+        for(const {assignment:a} of list){
+          const namesId=(a.teacherIds||[]).map(id=> tMap.get(id)?.name || id);
+          const names=(namesId.length? namesId : (a.teacherNames||[]));
+          const pendingFromIds=(a.pendingTeacherIds||[]).map(id=>{
+            const raw=tMap.get(id)?.name;
+            const clean=raw && String(raw).trim();
+            return clean || id;
+          });
+          const pendingNamesRaw=[...new Set([...(pendingFromIds||[]), ...((a.pendingTeacherNames||[]).map(n=> String(n||"").trim()))])];
+          const pendingNames=pendingNamesRaw.map(n=> String(n||"").trim()).filter(Boolean);
+          const pendingHtml=pendingNames.length ? `<div class="muted small">Pending: ${pendingNames.join(", ")}</div>` : "";
+          const warn=isSecondOrFourthSunday(a.date)? "": "<span class='pill amber'>⚠</span>";
+          const isDone = a.status==="Completed";
+          const talkDisplay = (a.talkSpeaker && a.talkTitle) ? `${a.talkSpeaker} — ${a.talkTitle}` : (a.talkTitle || a.talkSpeaker || "");
+          const hasTeacher = ((a.teacherIds&&a.teacherIds.length) || (a.teacherNames&&a.teacherNames.length));
+
+          const tr=document.createElement("tr");
+          tr.innerHTML = `
+            <td data-label="Date">${a.date} ${warn}</td>
+            <td data-label="Talk">${talkDisplay||"—"}</td>
+            <td data-label="Status">${a.status||"Unassigned"}</td>
+            <td data-label="Teacher"><div>${(names||[]).join(", ")||"—"}</div>${pendingHtml}</td>
+            <td data-label="Actions">
+              <div class="row tight-buttons">
+                <button class="btn" onclick="quickAssign('${a.id}')">Suggest</button>
+                <button class="btn" onclick="openTeacherPicker('${a.id}')">Pick</button>
+                <button class="btn" onclick="toggleCompleted('${a.id}')">${isDone?"Undo completed":"Mark completed"}</button>
+                ${hasTeacher ? `<button class="btn danger" onclick="unassign('${a.id}')">Unassign</button>` : ""}
+              </div>
+            </td>`;
+          tbody.appendChild(tr);
+        }
+      }else{
+        const empty=document.createElement("tr");
+        empty.className="empty";
+        empty.innerHTML=`<td data-label="" colspan="5">${emptyMessage}</td>`;
+        tbody.appendChild(empty);
+      }
+    };
+
+    renderRows(buckets.upcoming, upcomingBody, "Upcoming lessons", "No upcoming lessons");
+    renderRows(buckets.past, pastBody, "Past lessons", "No past lessons");
   }
 
   async function renderDirectory(){
