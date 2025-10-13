@@ -474,7 +474,13 @@
   async function importTT(obj){
     const sheets=obj.sheets;
     const teacherSheet=sheets["Teacher Tracker"] || sheets["TeacherTracker"] || sheets["Teachers"] || sheets["Sheet1"] || [];
-    const scheduleSheet=sheets["Lesson Schedule"] || sheets["Schedule"] || [];
+    const findSheet=(names)=>{
+      for(const [sheetName, sheet] of Object.entries(sheets||{})){
+        if(names.includes(sheetName.trim())) return sheet;
+      }
+      return null;
+    };
+    const scheduleSheet=findSheet(["Lesson Schedule","Schedule","Next Lessons"]) || [];
     const msgSheet=sheets["Sample Message"] || sheets["Message"] || [];
     let imported={teachers:0,assignments:0,template:false};
     const teacherNameLookup=new Map();
