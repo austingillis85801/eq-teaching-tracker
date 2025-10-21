@@ -173,7 +173,10 @@
               <option value="lastAsked">Last asked (oldest first)</option>
             </select>
           </div>
-          <div class="muted small" id="dirCount"></div>
+          <div class="row" style="gap:8px;align-items:center">
+            <div class="muted small" id="dirCount"></div>
+            <button class="btn" id="resetDirectoryFiltersBtn" type="button">Reset filters</button>
+          </div>
         </div>
         <div class="grid" id="directoryGrid"></div>
       </div>
@@ -524,6 +527,81 @@
   function colTeachers(){ return collection(db,"users",currentUser?.uid,"teachers"); }
   function colAssignments(){ return collection(db,"users",currentUser?.uid,"assignments"); }
   function docSettings(){ return doc(db,"users",currentUser?.uid,"settings","app"); }
+
+  // Directory filter persistence
+  const DIR_FILTER_STORAGE_KEY = "eqDirectoryFilters";
+  const directoryFilterDefaults = { search:"", filter:"all", sort:"name" };
+
+  function getLocalStorage(){
+    try{
+      if(typeof window === "undefined") return null;
+      return window.localStorage;
+    }catch(_err){
+      return null;
+    }
+  }
+
+  function readStoredDirectoryFilters(){
+    const store = getLocalStorage();
+    if(!store) return null;
+    try{
+      const raw = store.getItem(DIR_FILTER_STORAGE_KEY);
+      if(!raw) return null;
+      const parsed = JSON.parse(raw);
+      return (parsed && typeof parsed === "object") ? parsed : null;
+    }catch(err){
+      console.warn("Failed to read directory filters from storage", err);
+      return null;
+    }
+  }
+
+  function writeStoredDirectoryFilters(state){
+    const store = getLocalStorage();
+    if(!store) return;
+    try{
+      store.setItem(DIR_FILTER_STORAGE_KEY, JSON.stringify(state));
+    }catch(err){
+      console.warn("Failed to save directory filters", err);
+    }
+  }
+
+  function hydrateDirectoryFilters(){
+    const stored = readStoredDirectoryFilters();
+    const values = Object.assign({}, directoryFilterDefaults, stored||{});
+    const searchEl = $("#searchInput");
+    if(searchEl) searchEl.value = values.search || directoryFilterDefaults.search;
+    const filterEl = $("#filterSelect");
+    if(filterEl){
+      const valid = Array.from(filterEl.options||[]).some(opt=>opt.value===values.filter);
+      filterEl.value = valid ? values.filter : directoryFilterDefaults.filter;
+    }
+    const sortEl = $("#sortSelect");
+    if(sortEl){
+      const valid = Array.from(sortEl.options||[]).some(opt=>opt.value===values.sort);
+      sortEl.value = valid ? values.sort : directoryFilterDefaults.sort;
+    }
+  }
+
+  function persistDirectoryFilters(){
+    const searchEl = $("#searchInput");
+    const filterEl = $("#filterSelect");
+    const sortEl = $("#sortSelect");
+    writeStoredDirectoryFilters({
+      search: searchEl ? searchEl.value : directoryFilterDefaults.search,
+      filter: filterEl ? filterEl.value : directoryFilterDefaults.filter,
+      sort: sortEl ? sortEl.value : directoryFilterDefaults.sort
+    });
+  }
+
+  function clearStoredDirectoryFilters(){
+    const store = getLocalStorage();
+    if(!store) return;
+    try{
+      store.removeItem(DIR_FILTER_STORAGE_KEY);
+    }catch(err){
+      console.warn("Failed to clear directory filters", err);
+    }
+  }
 
   // Settings load/save
   async function loadSettings(){
@@ -999,6 +1077,12 @@
   }
 
   async function renderDirectory(sharedTeachers){
+    if(!currentUser){
+      $("#directoryGrid").innerHTML="";
+      const countEl=$("#dirCount");
+      if(countEl) countEl.textContent="";
+      return;
+    }
     const teachers = sharedTeachers || await fetchTeachers();
     const q=$("#searchInput").value.trim().toLowerCase();
     const filter=$("#filterSelect").value;
@@ -1204,10 +1288,22 @@
     `;
   }
 
+  hydrateDirectoryFilters();
+
   // Live directory filters
-  $("#searchInput").addEventListener("input", ()=>renderDirectory());
-  $("#filterSelect").addEventListener("change", ()=>renderDirectory());
-  $("#sortSelect").addEventListener("change", ()=>renderDirectory());
+  const handleDirectoryFiltersChanged = ()=>{ persistDirectoryFilters(); renderDirectory(); };
+  $("#searchInput").addEventListener("input", handleDirectoryFiltersChanged);
+  $("#filterSelect").addEventListener("change", handleDirectoryFiltersChanged);
+  $("#sortSelect").addEventListener("change", handleDirectoryFiltersChanged);
+
+  const resetFiltersBtn = $("#resetDirectoryFiltersBtn");
+  if(resetFiltersBtn){
+    resetFiltersBtn.addEventListener("click", ()=>{
+      clearStoredDirectoryFilters();
+      hydrateDirectoryFilters();
+      renderDirectory();
+    });
+  }
 
   // Quick actions (refresh all views so Next Up updates immediately)
   window.toggleHasCalling = async(id,val)=>{ await setDoc(doc(colTeachers(),id), {hasCalling:!!val}, {merge:true}); await renderAll(); };
