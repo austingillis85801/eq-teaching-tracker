@@ -65,7 +65,7 @@
     .status-list strong{font-weight:600}
     .status-error{color:var(--red)}
     @keyframes spin{to{transform:rotate(360deg)}}
-    #stats{display:flex;flex-direction:column;gap:10px}
+    .stat-stack{display:flex;flex-direction:column;gap:10px}
     .stat-block{background:#f5f7fe;border:1px solid #dbe3ff;border-radius:12px;padding:10px}
     .stat-title{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:6px}
     .stat-value{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-weight:600}
@@ -222,7 +222,8 @@
       </div>
       <div class="card">
         <h3>Status</h3>
-        <div id="stats"></div>
+        <div id="statusSummary" class="stat-stack"></div>
+        <div id="stats" class="stat-stack"></div>
       </div>
     </div>
   </section>
@@ -594,7 +595,7 @@
     return `<div class="stat-block"><div class="stat-title">Last Import</div>${content}</div>`;
   }
   function updateCacheStatusUI({inProgress=false, meta=null, error=null}={}){
-    const el=document.getElementById('stats');
+    const el=document.getElementById('statusSummary');
     if(!el) return;
     const sections=[renderOfflineStatus({inProgress, meta, error}), renderImportStatus()];
     el.innerHTML=sections.join('');
