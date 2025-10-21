@@ -392,6 +392,97 @@
     retryNoResponseDays:60,
     textTemplate:"Hey brother {LastName}, this is Austin Gillis from elders quorum. Would you be willing to lead the next elders meeting discussion on {NextTeachSundayPretty}? The presidency has prayed and know you would do amazing if you’re willing."
   };
+  const CACHE_NAME = 'eqtt-v5';
+  const SNAPSHOT_URL = 'latest-backup.json';
+  const SNAPSHOT_META_PREFIX = 'eqttSnapshotMeta';
+
+  function snapshotMetaKey(){
+    return `${SNAPSHOT_META_PREFIX}:${currentUser?.uid||'anon'}`;
+  }
+  function readSnapshotMeta(){
+    try{
+      const raw=localStorage.getItem(snapshotMetaKey());
+      return raw ? JSON.parse(raw) : null;
+    }catch(e){
+      console.warn('Unable to read snapshot metadata', e);
+      return null;
+    }
+  }
+  function writeSnapshotMeta(meta){
+    try{
+      localStorage.setItem(snapshotMetaKey(), JSON.stringify(meta));
+    }catch(e){
+      console.warn('Unable to persist snapshot metadata', e);
+    }
+  }
+  function updateCacheStatusUI({inProgress=false, meta=null, error=null}={}){
+    const el=document.getElementById('stats');
+    if(!el) return;
+    if(!('caches' in window)){
+      el.innerHTML='<div class="muted small">Offline caching not supported in this browser.</div>';
+      return;
+    }
+    if(!currentUser){
+      el.innerHTML='<div class="muted small">Sign in to sync data for offline use.</div>';
+      return;
+    }
+    if(error){
+      const info=readSnapshotMeta();
+      const fallback=(info && info.savedAt)? `<div class="muted small">Last successful save ${new Date(info.savedAt).toLocaleString()}</div>` : '';
+      el.innerHTML=`<div class="muted small" style="color:var(--red)">${error}</div>${fallback}`;
+      return;
+    }
+    if(inProgress){
+      el.innerHTML='<div class="muted small">Saving latest data for offline use…</div>';
+      return;
+    }
+    const info=meta || readSnapshotMeta();
+    if(info && info.savedAt){
+      const savedDate=new Date(info.savedAt);
+      const statusIcon=info.isCurrent ? '✅' : '⚠️';
+      const statusLabel=info.isCurrent ? 'Current' : 'Needs refresh';
+      const origin=info.origin ? ` via ${info.origin}` : '';
+      const counts=info.counts ? ` • Teachers: ${info.counts.teachers ?? 0}, Lessons: ${info.counts.assignments ?? 0}` : '';
+      el.innerHTML=`
+        <div class="muted small">${statusIcon} Offline copy: <strong>${statusLabel}</strong></div>
+        <div class="muted small">Last saved ${savedDate.toLocaleString()}${origin}${counts}</div>
+      `;
+    }else{
+      el.innerHTML='<div class="muted small">No offline copy saved yet.</div>';
+    }
+  }
+  async function saveOfflineSnapshot(origin='manual'){
+    if(!currentUser || !('caches' in window)){
+      updateCacheStatusUI();
+      return;
+    }
+    updateCacheStatusUI({inProgress:true});
+    try{
+      const [teachers, assignments]=await Promise.all([fetchTeachers(), fetchAssignments()]);
+      const savedAt=new Date().toISOString();
+      const counts={teachers:teachers.length, assignments:assignments.length};
+      const payload={savedAt, origin, settings, teachers, assignments};
+      const cache=await caches.open(CACHE_NAME);
+      await cache.put(SNAPSHOT_URL, new Response(JSON.stringify(payload), {
+        headers:{'Content-Type':'application/json'}
+      }));
+      const meta={savedAt, origin, isCurrent:true, counts};
+      writeSnapshotMeta(meta);
+      updateCacheStatusUI({meta});
+    }catch(err){
+      console.error('saveOfflineSnapshot failed', err);
+      const prev=readSnapshotMeta();
+      if(prev){
+        prev.isCurrent=false;
+        writeSnapshotMeta(prev);
+        updateCacheStatusUI({error:'Offline cache failed. Try again.', meta:prev});
+      }else{
+        updateCacheStatusUI({error:'Offline cache failed. Try again.'});
+      }
+    }
+  }
+
+  updateCacheStatusUI();
   function colTeachers(){ return collection(db,"users",currentUser?.uid,"teachers"); }
   function colAssignments(){ return collection(db,"users",currentUser?.uid,"assignments"); }
   function docSettings(){ return doc(db,"users",currentUser?.uid,"settings","app"); }
@@ -434,6 +525,7 @@
     $("#signInBtn").classList.toggle("hidden", !!u);
     $("#signUpBtn").classList.toggle("hidden",  !!u);
     $("#signOutBtn").classList.toggle("hidden", !u);
+    updateCacheStatusUI();
 
     if(u){
       await loadSettings();
@@ -592,9 +684,11 @@
     const ttF=$("#ttFile").files[0]; const roF=$("#rosterFile").files[0];
     $("#importLog").textContent="Reading files...";
     try{
-      if(ttF){ const data=await readFile(ttF); const res=await importTT(data); $("#importLog").textContent="Imported Teacher Tracker: "+JSON.stringify(res); }
-      if(roF){ const data2=await readFile(roF); const res2=await importRoster(data2); $("#importLog").textContent += "\nImported Roster: "+JSON.stringify(res2); }
-      renderAll();
+      let importedSomething=false;
+      if(ttF){ const data=await readFile(ttF); const res=await importTT(data); $("#importLog").textContent="Imported Teacher Tracker: "+JSON.stringify(res); importedSomething=true; }
+      if(roF){ const data2=await readFile(roF); const res2=await importRoster(data2); $("#importLog").textContent += "\nImported Roster: "+JSON.stringify(res2); importedSomething=true; }
+      await renderAll();
+      if(importedSomething) saveOfflineSnapshot('import');
     }catch(e){ $("#importLog").textContent="Import error: "+e.message; console.error(e); }
   });
   $("#fixDupBtn").addEventListener("click", ()=> alert("Duplicates prevented via deterministic IDs."));
@@ -1198,7 +1292,7 @@
   }
   wireTouchFocus();
 
-  if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js?v=3").catch(()=>{}); }
+  if("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js?v=5").catch(()=>{}); }
 </script>
 </body>
 </html>
