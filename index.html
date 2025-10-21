@@ -54,6 +54,12 @@
     .tools{position:static} /* better scrolling on mobile */
     .small{font-size:12px}
     .hidden{display:none}
+    #stats{display:flex;flex-direction:column;gap:10px}
+    .stat-block{background:#f5f7fe;border:1px solid #dbe3ff;border-radius:12px;padding:10px}
+    .stat-title{font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--muted);margin-bottom:6px}
+    .stat-value{display:flex;align-items:center;flex-wrap:wrap;gap:6px;font-weight:600}
+    .stat-meta{font-size:12px;color:var(--muted);margin-top:4px}
+    .pill-group{display:flex;flex-wrap:wrap;gap:6px}
 
     @media (max-width: 600px){
       .tight-buttons{gap:6px}
@@ -704,8 +710,12 @@
   }
 
   // Renders
-  async function renderNextUp(){
-    const [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
+  async function renderNextUp(sharedTeachers, sharedAssignments){
+    let teachers = sharedTeachers;
+    let assignments = sharedAssignments;
+    if(!teachers || !assignments){
+      [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
+    }
     const teacherMap=new Map(teachers.map(t=>[t.id,t]));
     const recent = teachers
       .filter(t=>t && t.name)
@@ -777,8 +787,12 @@
     return s > new Date();
   }
 
-  async function renderSchedule(){
-    const [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
+  async function renderSchedule(sharedTeachers, sharedAssignments){
+    let teachers = sharedTeachers;
+    let assignments = sharedAssignments;
+    if(!teachers || !assignments){
+      [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
+    }
     const tMap=new Map(teachers.map(t=>[t.id,t]));
     const upcomingBody=$("#scheduleUpcoming");
     const pastBody=$("#schedulePast");
@@ -858,8 +872,8 @@
     renderRows(buckets.past, pastBody, "Past lessons", "No past lessons");
   }
 
-  async function renderDirectory(){
-    const teachers=await fetchTeachers();
+  async function renderDirectory(sharedTeachers){
+    const teachers = sharedTeachers || await fetchTeachers();
     const q=$("#searchInput").value.trim().toLowerCase();
     const filter=$("#filterSelect").value;
     const sort=$("#sortSelect").value;
@@ -909,10 +923,165 @@
     }).join("");
   }
 
+  async function renderStats(sharedTeachers, sharedAssignments){
+    const statsEl = document.getElementById("stats");
+    if(!statsEl) return;
+
+    let teachers = sharedTeachers;
+    let assignments = sharedAssignments;
+    if(!teachers || !assignments){
+      [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
+    }
+
+    const activeEntries = (teachers||[])
+      .filter(t=> t && t.name && String(t.name).trim())
+      .map(t=>{
+        const entry={
+          teacher:t,
+          id:t.id||null,
+          name:t.name,
+          totalAssignments:0,
+          completedAssignments:0,
+          lastLessonDate:null,
+          daysSinceLast:Infinity
+        };
+        const lt=t.lastTaught;
+        if(lt){
+          const val=lt.toDate? lt.toDate(): new Date(lt);
+          if(val instanceof Date && !Number.isNaN(val.valueOf())){
+            entry.lastLessonDate=val;
+            entry.daysSinceLast=daysSince(val);
+          }
+        }
+        return entry;
+      });
+
+    if(!activeEntries.length){
+      statsEl.innerHTML = `<div class="muted small">No teachers available for stats.</div>`;
+      return;
+    }
+
+    const idMap=new Map();
+    const nameMap=new Map();
+    activeEntries.forEach(entry=>{
+      if(entry.id) idMap.set(entry.id, entry);
+      const norm=normalizeName(entry.name);
+      if(norm) nameMap.set(norm, entry);
+    });
+
+    (assignments||[]).forEach(a=>{
+      if(!a) return;
+      const assignedIds=Array.isArray(a.teacherIds)? a.teacherIds.filter(Boolean):[];
+      const assignedNames=Array.isArray(a.teacherNames)? a.teacherNames.map(n=> String(n||"").trim()).filter(Boolean):[];
+      const status=String(a.status||"").toLowerCase();
+      const iso=a.date;
+      const lessonDate=iso? new Date(`${iso}T12:00:00`):null;
+
+      const updateEntry=(entry)=>{
+        if(!entry) return;
+        entry.totalAssignments+=1;
+        if(status==="completed"){
+          entry.completedAssignments+=1;
+          if(lessonDate && (!entry.lastLessonDate || lessonDate>entry.lastLessonDate)){
+            entry.lastLessonDate=lessonDate;
+          }
+        }
+      };
+
+      assignedIds.forEach(id=> updateEntry(idMap.get(id)));
+      if(!assignedIds.length){
+        assignedNames.forEach(name=> updateEntry(nameMap.get(normalizeName(name))));
+      }
+    });
+
+    activeEntries.forEach(entry=>{
+      if(entry.lastLessonDate instanceof Date && !Number.isNaN(entry.lastLessonDate.valueOf())){
+        entry.daysSinceLast=daysSince(entry.lastLessonDate);
+      } else {
+        entry.daysSinceLast=Infinity;
+        entry.lastLessonDate=null;
+      }
+    });
+
+    const eligible=activeEntries.filter(entry=> entry.teacher?.active !== false);
+    if(!eligible.length){
+      statsEl.innerHTML = `<div class="muted small">No active teachers to summarize.</div>`;
+      return;
+    }
+
+    const mostRecent=eligible.reduce((best, entry)=>{
+      if(!entry.lastLessonDate) return best;
+      if(!best) return entry;
+      return entry.daysSinceLast < best.daysSinceLast ? entry : best;
+    }, null);
+
+    const longest=eligible.reduce((worst, entry)=>{
+      const curVal=entry.lastLessonDate? entry.daysSinceLast : Infinity;
+      if(!worst) return entry;
+      const worstVal=worst.lastLessonDate? worst.daysSinceLast : Infinity;
+      return curVal > worstVal ? entry : worst;
+    }, null);
+
+    const thresholdBase=settings?.askCooldownDays||0;
+    const staleThreshold=Math.max(90, thresholdBase||0);
+    const stale=eligible
+      .filter(entry=> !entry.lastLessonDate || entry.daysSinceLast >= staleThreshold)
+      .sort((a,b)=>{
+        const aVal=a.lastLessonDate? a.daysSinceLast : Infinity;
+        const bVal=b.lastLessonDate? b.daysSinceLast : Infinity;
+        if(aVal===bVal) return (a.name||"").localeCompare(b.name||"");
+        return bVal - aVal;
+      });
+
+    const renderPrimary=(entry, positiveClass, emptyText)=>{
+      if(!entry){
+        return `<div class="muted small">${emptyText}</div>`;
+      }
+      const hasLesson=!!entry.lastLessonDate;
+      const iso=hasLesson? fmtDate(entry.lastLessonDate):"";
+      const pretty=hasLesson? prettyDate(iso):"Never taught";
+      const ago=hasLesson? `${entry.daysSinceLast}d ago`:"No record";
+      const completedLabel=`${entry.completedAssignments} completed`;
+      const totalLabel=`${entry.totalAssignments} assigned`;
+      const pills=hasLesson
+        ? `<span class="pill ${positiveClass}">${pretty}</span><span class="pill">${ago}</span>`
+        : `<span class="pill red">${pretty}</span>`;
+      return `
+        <div class="stat-value">
+          <span>${entry.name}</span>
+          ${pills}
+        </div>
+        <div class="stat-meta">${completedLabel} • ${totalLabel}</div>
+      `;
+    };
+
+    const staleHtml = stale.length
+      ? `<div class="pill-group">${stale.slice(0,8).map(entry=>{
+          const label=entry.lastLessonDate? `${entry.name} • ${entry.daysSinceLast}d` : `${entry.name} • Never`;
+          return `<span class="pill amber">${label}</span>`;
+        }).join("")}${stale.length>8? `<span class="pill amber">+${stale.length-8} more</span>`:""}</div>`
+      : `<div class="stat-meta">All active teachers have taught within the last ${staleThreshold} days.</div>`;
+
+    statsEl.innerHTML = `
+      <div class="stat-block">
+        <div class="stat-title">Most recently taught</div>
+        ${renderPrimary(mostRecent, "green", "No completed lessons yet.")}
+      </div>
+      <div class="stat-block">
+        <div class="stat-title">Longest since assignment</div>
+        ${renderPrimary(longest, "red", "No teachers to compare.")}
+      </div>
+      <div class="stat-block">
+        <div class="stat-title">Teachers without a lesson in ${staleThreshold} days</div>
+        ${staleHtml}
+      </div>
+    `;
+  }
+
   // Live directory filters
-  $("#searchInput").addEventListener("input", renderDirectory);
-  $("#filterSelect").addEventListener("change", renderDirectory);
-  $("#sortSelect").addEventListener("change", renderDirectory);
+  $("#searchInput").addEventListener("input", ()=>renderDirectory());
+  $("#filterSelect").addEventListener("change", ()=>renderDirectory());
+  $("#sortSelect").addEventListener("change", ()=>renderDirectory());
 
   // Quick actions (refresh all views so Next Up updates immediately)
   window.toggleHasCalling = async(id,val)=>{ await setDoc(doc(colTeachers(),id), {hasCalling:!!val}, {merge:true}); await renderAll(); };
@@ -1097,6 +1266,7 @@
       }
     }
     renderSchedule();
+    renderStats();
   };
 
   // Unassign clears both ids and names and resets status
@@ -1180,7 +1350,16 @@
     closeTeacherPicker(); renderAll();
   };
 
-  async function renderAll(){ await Promise.all([renderNextUp(), renderSchedule(), renderDirectory()]); wireTouchFocus(); }
+  async function renderAll(){
+    const [teachers, assignments] = await Promise.all([fetchTeachers(), fetchAssignments()]);
+    await Promise.all([
+      renderNextUp(teachers, assignments),
+      renderSchedule(teachers, assignments),
+      renderDirectory(teachers),
+      renderStats(teachers, assignments)
+    ]);
+    wireTouchFocus();
+  }
 
   // --- iOS keyboard helper ---
   function wireTouchFocus(){
