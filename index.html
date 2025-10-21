@@ -167,6 +167,7 @@
               <option value="lastAsked">Last asked (oldest first)</option>
             </select>
           </div>
+          <button class="btn" id="resetDirectoryFiltersBtn" type="button">Reset filters</button>
           <div class="muted small" id="dirCount"></div>
         </div>
         <div class="grid" id="directoryGrid"></div>
@@ -858,6 +859,44 @@
     renderRows(buckets.past, pastBody, "Past lessons", "No past lessons");
   }
 
+  const DIRECTORY_FILTER_KEY = "eqDirectoryFilters";
+  const directoryFilterDefaults = { search:"", filter:"all", sort:"name" };
+
+  function loadDirectoryFilters(){
+    try{
+      const raw=localStorage.getItem(DIRECTORY_FILTER_KEY);
+      if(!raw) return {...directoryFilterDefaults};
+      const parsed=JSON.parse(raw);
+      return {...directoryFilterDefaults, ...(parsed&&typeof parsed==="object"?parsed:{})};
+    }catch(err){
+      console.warn("Failed to load directory filters", err);
+      return {...directoryFilterDefaults};
+    }
+  }
+
+  function saveDirectoryFilters(){
+    try{
+      const data={
+        search: $("#searchInput")?.value || "",
+        filter: $("#filterSelect")?.value || directoryFilterDefaults.filter,
+        sort: $("#sortSelect")?.value || directoryFilterDefaults.sort
+      };
+      localStorage.setItem(DIRECTORY_FILTER_KEY, JSON.stringify(data));
+    }catch(err){
+      console.warn("Failed to save directory filters", err);
+    }
+  }
+
+  function hydrateDirectoryControls(){
+    const prefs=loadDirectoryFilters();
+    setIf("searchInput", prefs.search ?? directoryFilterDefaults.search);
+    setIf("filterSelect", prefs.filter ?? directoryFilterDefaults.filter);
+    setIf("sortSelect", prefs.sort ?? directoryFilterDefaults.sort);
+  }
+
+  hydrateDirectoryControls();
+  if(currentUser){ renderDirectory(); }
+
   async function renderDirectory(){
     const teachers=await fetchTeachers();
     const q=$("#searchInput").value.trim().toLowerCase();
@@ -910,9 +949,19 @@
   }
 
   // Live directory filters
-  $("#searchInput").addEventListener("input", renderDirectory);
-  $("#filterSelect").addEventListener("change", renderDirectory);
-  $("#sortSelect").addEventListener("change", renderDirectory);
+  $("#searchInput").addEventListener("input", ()=>{ saveDirectoryFilters(); renderDirectory(); });
+  $("#filterSelect").addEventListener("change", ()=>{ saveDirectoryFilters(); renderDirectory(); });
+  $("#sortSelect").addEventListener("change", ()=>{ saveDirectoryFilters(); renderDirectory(); });
+  const resetDirectoryFiltersBtn=$("#resetDirectoryFiltersBtn");
+  if(resetDirectoryFiltersBtn){
+    resetDirectoryFiltersBtn.addEventListener("click", ()=>{
+      try{ localStorage.removeItem(DIRECTORY_FILTER_KEY); }
+      catch(err){ console.warn("Failed to clear directory filters", err); }
+      hydrateDirectoryControls();
+      saveDirectoryFilters();
+      renderDirectory();
+    });
+  }
 
   // Quick actions (refresh all views so Next Up updates immediately)
   window.toggleHasCalling = async(id,val)=>{ await setDoc(doc(colTeachers(),id), {hasCalling:!!val}, {merge:true}); await renderAll(); };
