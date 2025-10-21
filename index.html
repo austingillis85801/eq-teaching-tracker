@@ -38,9 +38,26 @@
     .card{background:var(--card);border:1px solid #e5e8ef;border-radius:14px;padding:12px}
     .card h3{margin:0 0 6px 0;font-size:16px}
     .muted{color:var(--muted);font-size:12px}
-    .btn{display:inline-flex;align-items:center;gap:6px;padding:10px 12px;border-radius:10px;border:1px solid #ccd3e0;background:#fff;cursor:pointer;min-height:44px;line-height:1.3}
+    .btn{display:inline-flex;align-items:center;gap:6px;padding:10px 12px;border-radius:10px;border:1px solid #ccd3e0;background:#fff;cursor:pointer;min-height:44px;line-height:1.3;position:relative}
     .btn.primary{background:var(--accent);color:#fff;border-color:var(--accent)}
     .btn.danger{border-color:var(--red);color:#d44545;background:#fff}
+    .btn[disabled]{opacity:0.6;cursor:not-allowed}
+    .btn.loading{padding-right:34px}
+    .btn.loading::after{
+      content:"";
+      position:absolute;
+      right:12px;
+      width:14px;
+      height:14px;
+      border-radius:50%;
+      border:2px solid rgba(255,255,255,0.7);
+      border-top-color:rgba(11,22,40,0.4);
+      animation:spin 0.8s linear infinite;
+    }
+    .btn.loading.btn:not(.primary)::after{
+      border-color:rgba(11,22,40,0.2);
+      border-top-color:rgba(11,22,40,0.5);
+    }
     input,select,textarea{font-size:16px;padding:8px;border:1px solid #ccd3e0;border-radius:10px;background:#fff; touch-action:manipulation;}
     table{width:100%;border-collapse:collapse}
     th,td{padding:8px;border-bottom:1px solid #eef2f7;text-align:left;vertical-align:top}
@@ -54,6 +71,10 @@
     .tools{position:static} /* better scrolling on mobile */
     .small{font-size:12px}
     .hidden{display:none}
+
+    @keyframes spin{
+      to{transform:rotate(360deg);}
+    }
 
     @media (max-width: 600px){
       .tight-buttons{gap:6px}
@@ -293,6 +314,14 @@
   function daysSince(d){ if(!d) return 9999; const dt=(d instanceof Date)?d:new Date(d); return Math.floor((Date.now()-dt.getTime())/86400000); }
   function phoneDigits(p){ return (p||"").replace(/\D+/g,""); }
   function keyFrom(name,email,phone){ return [phoneDigits(phone), String(email||"").toLowerCase().trim(), String(name||"").toLowerCase().trim()].join("|"); }
+  function escapeHtml(str){
+    return String(str||"")
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
   function normalizeName(name){
     if(!name) return "";
     const original=String(name);
@@ -392,6 +421,84 @@
     retryNoResponseDays:60,
     textTemplate:"Hey brother {LastName}, this is Austin Gillis from elders quorum. Would you be willing to lead the next elders meeting discussion on {NextTeachSundayPretty}? The presidency has prayed and know you would do amazing if you’re willing."
   };
+  let lastValidationSummary=null;
+
+  function renderStatusSummary(summary){
+    const container=$("#stats");
+    if(!container){ return; }
+    if(!summary || (!summary.teacherTracker && !summary.roster)){
+      container.innerHTML='<p class="muted small">No imports run yet.</p>';
+      return;
+    }
+
+    const sections=[];
+    if(summary.teacherTracker){
+      const tt=summary.teacherTracker;
+      const teacherItems=[
+        `<li>Rows processed: ${tt.teachers.processed}</li>`,
+        `<li>New records: ${tt.teachers.created}</li>`,
+        `<li>Updated records: ${tt.teachers.updated}</li>`
+      ];
+      if(tt.teachers.skippedMissingName){
+        teacherItems.push(`<li>Skipped (missing name): ${tt.teachers.skippedMissingName}</li>`);
+      }
+      if(tt.teachers.errors.length){
+        teacherItems.push(`<li>Row issues<ul>${tt.teachers.errors.map(msg=>`<li>${escapeHtml(msg)}</li>`).join("")}</ul></li>`);
+      }
+
+      const assignmentItems=[
+        `<li>Rows processed: ${tt.assignments.processed}</li>`,
+        `<li>New records: ${tt.assignments.created}</li>`,
+        `<li>Updated records: ${tt.assignments.updated}</li>`
+      ];
+      if(tt.assignments.skippedMissingDate){
+        assignmentItems.push(`<li>Skipped (invalid date): ${tt.assignments.skippedMissingDate}</li>`);
+      }
+      if(tt.assignments.errors.length){
+        assignmentItems.push(`<li>Row issues<ul>${tt.assignments.errors.map(msg=>`<li>${escapeHtml(msg)}</li>`).join("")}</ul></li>`);
+      }
+
+      const ttItems=[
+        `<li><strong>Teacher rows</strong><ul>${teacherItems.join("")}</ul></li>`
+      ];
+      if(tt.assignments.processed || tt.assignments.created || tt.assignments.updated || tt.assignments.skippedMissingDate || tt.assignments.errors.length){
+        ttItems.push(`<li><strong>Schedule rows</strong><ul>${assignmentItems.join("")}</ul></li>`);
+      }
+      if(tt.templateUpdated){
+        ttItems.push('<li>Message template updated from workbook</li>');
+      }
+      if(tt.templateErrors.length){
+        ttItems.push(`<li>Template errors<ul>${tt.templateErrors.map(msg=>`<li>${escapeHtml(msg)}</li>`).join("")}</ul></li>`);
+      }
+      if(tt.fatalError){
+        ttItems.push(`<li style="color:var(--red)">${escapeHtml(tt.fatalError)}</li>`);
+      }
+      sections.push(`<li><strong>Teacher Tracker</strong><ul>${ttItems.join("")}</ul></li>`);
+    }
+
+    if(summary.roster){
+      const ro=summary.roster;
+      const rosterItems=[
+        `<li>Rows processed: ${ro.records.processed}</li>`,
+        `<li>New records: ${ro.records.created}</li>`,
+        `<li>Updated records: ${ro.records.updated}</li>`
+      ];
+      if(ro.records.skippedMissingName){
+        rosterItems.push(`<li>Skipped (missing name): ${ro.records.skippedMissingName}</li>`);
+      }
+      if(ro.records.errors.length){
+        rosterItems.push(`<li>Row issues<ul>${ro.records.errors.map(msg=>`<li>${escapeHtml(msg)}</li>`).join("")}</ul></li>`);
+      }
+      if(ro.fatalError){
+        rosterItems.push(`<li style="color:var(--red)">${escapeHtml(ro.fatalError)}</li>`);
+      }
+      sections.push(`<li><strong>Roster</strong><ul>${rosterItems.join("")}</ul></li>`);
+    }
+
+    container.innerHTML=`<ul class="small" style="margin:0;padding-left:20px">${sections.join("")}</ul>`;
+  }
+
+  renderStatusSummary(lastValidationSummary);
   function colTeachers(){ return collection(db,"users",currentUser?.uid,"teachers"); }
   function colAssignments(){ return collection(db,"users",currentUser?.uid,"assignments"); }
   function docSettings(){ return doc(db,"users",currentUser?.uid,"settings","app"); }
@@ -457,145 +564,362 @@
     return isNaN(d)? null : d;
   }
   function readFile(file){
-    return new Promise((resolve)=>{
-      const name=file.name.toLowerCase();
-      const reader=new FileReader();
-      reader.onload=()=>{
-        const data=reader.result;
-        if(name.endsWith(".csv")){
-          const res=Papa.parse(data,{header:true,skipEmptyLines:true});
-          resolve({type:"csv", sheets:{Sheet1:res.data}});
-        } else {
-          const wb=XLSX.read(data,{type:"array"}); const sheets={};
-          wb.SheetNames.forEach(sn=> sheets[sn]=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:null}));
-          resolve({type:"xlsx", sheets});
-        }
-      };
-      if(name.endsWith(".csv")) reader.readAsText(file); else reader.readAsArrayBuffer(file);
+    return new Promise((resolve,reject)=>{
+      try{
+        const name=file.name.toLowerCase();
+        const reader=new FileReader();
+        reader.onerror=()=> reject(reader.error || new Error(`Failed to read ${file.name}`));
+        reader.onload=()=>{
+          try{
+            const data=reader.result;
+            if(name.endsWith(".csv")){
+              const res=Papa.parse(data,{header:true,skipEmptyLines:true});
+              resolve({type:"csv", sheets:{Sheet1:res.data}});
+            } else {
+              const wb=XLSX.read(data,{type:"array"}); const sheets={};
+              wb.SheetNames.forEach(sn=> sheets[sn]=XLSX.utils.sheet_to_json(wb.Sheets[sn],{defval:null}));
+              resolve({type:"xlsx", sheets});
+            }
+          }catch(err){
+            reject(err);
+          }
+        };
+        if(name.endsWith(".csv")) reader.readAsText(file); else reader.readAsArrayBuffer(file);
+      }catch(err){
+        reject(err);
+      }
     });
   }
   async function importTT(obj){
-    const sheets=obj.sheets;
-    const teacherSheet=sheets["Teacher Tracker"] || sheets["TeacherTracker"] || sheets["Teachers"] || sheets["Sheet1"] || [];
-    const findSheet=(names)=>{
-      for(const [sheetName, sheet] of Object.entries(sheets||{})){
-        if(names.includes(sheetName.trim())) return sheet;
-      }
-      return null;
-    };
-    const scheduleSheet=findSheet(["Lesson Schedule","Schedule","Next Lessons"]) || [];
-    const msgSheet=sheets["Sample Message"] || sheets["Message"] || [];
-    let imported={teachers:0,assignments:0,template:false};
-    const teacherNameLookup=new Map();
-    let cachedTeacherNameLookup=null;
+    if(!obj || !obj.sheets){ throw new Error("Teacher Tracker workbook missing sheets."); }
 
-    const getTeacherIdForName=async (rawName)=>{
-      const norm=normalizeName(rawName);
-      if(!norm) return null;
-      if(teacherNameLookup.has(norm)) return teacherNameLookup.get(norm);
-      if(cachedTeacherNameLookup && cachedTeacherNameLookup.has(norm)) return cachedTeacherNameLookup.get(norm);
-      if(!cachedTeacherNameLookup){
-        cachedTeacherNameLookup=new Map(teacherNameLookup);
-        const snap=await getDocs(colTeachers());
-        snap.forEach(d=>{
-          const data=d.data();
-          const names=[data?.name];
-          for(const nm of names){
-            const normName=normalizeName(nm);
-            if(normName && !cachedTeacherNameLookup.has(normName)){
-              cachedTeacherNameLookup.set(normName, d.id);
-            }
+    const summary={
+      teachers:{processed:0,created:0,updated:0,skippedMissingName:0,errors:[]},
+      assignments:{processed:0,created:0,updated:0,skippedMissingDate:0,errors:[]},
+      templateUpdated:false,
+      templateErrors:[],
+      fatalError:null
+    };
+
+    try{
+      const sheets=obj.sheets;
+      const teacherSheet=sheets["Teacher Tracker"] || sheets["TeacherTracker"] || sheets["Teachers"] || sheets["Sheet1"] || [];
+      const findSheet=(names)=>{
+        for(const [sheetName, sheet] of Object.entries(sheets||{})){
+          if(names.includes((sheetName||"").trim())) return sheet;
+        }
+        return null;
+      };
+      const scheduleSheet=findSheet(["Lesson Schedule","Schedule","Next Lessons"]) || [];
+      const msgSheet=sheets["Sample Message"] || sheets["Message"] || [];
+      const teacherNameLookup=new Map();
+      let cachedTeacherNameLookup=null;
+
+      const getTeacherIdForName=async (rawName)=>{
+        const norm=normalizeName(rawName);
+        if(!norm) return null;
+        if(teacherNameLookup.has(norm)) return teacherNameLookup.get(norm);
+        if(cachedTeacherNameLookup && cachedTeacherNameLookup.has(norm)) return cachedTeacherNameLookup.get(norm);
+        if(!cachedTeacherNameLookup){
+          cachedTeacherNameLookup=new Map(teacherNameLookup);
+          try{
+            const snap=await getDocs(colTeachers());
+            snap.forEach(d=>{
+              const data=d.data();
+              const names=[data?.name];
+              for(const nm of names){
+                const normName=normalizeName(nm);
+                if(normName && !cachedTeacherNameLookup.has(normName)){
+                  cachedTeacherNameLookup.set(normName, d.id);
+                }
+              }
+            });
+          }catch(err){
+            summary.assignments.errors.push(`Lookup failed for \"${rawName}\": ${err?.message||err}`);
+            return null;
           }
-        });
-      }
-      return cachedTeacherNameLookup.get(norm)||null;
-    };
+        }
+        return cachedTeacherNameLookup.get(norm)||null;
+      };
 
-    if(msgSheet && msgSheet.length){
-      const row=msgSheet.find(r=>r.Message)||msgSheet[0];
-      if(row && row.Message){
-        settings.textTemplate=String(row.Message).trim();
-        await setDoc(docSettings(), settings, {merge:true});
-        imported.template=true;
+      if(msgSheet && msgSheet.length){
+        const row=msgSheet.find(r=>r.Message)||msgSheet[0];
+        if(row && row.Message){
+          try{
+            settings.textTemplate=String(row.Message).trim();
+            await setDoc(docSettings(), settings, {merge:true});
+            summary.templateUpdated=true;
+          }catch(err){
+            summary.templateErrors.push(err?.message||String(err));
+          }
+        }
       }
+
+      for(let idx=0; idx<teacherSheet.length; idx++){
+        const r=teacherSheet[idx];
+        summary.teachers.processed++;
+        const name=r["Name"] ?? r["PreferredName"] ?? r["Full Name"];
+        if(!name){
+          summary.teachers.skippedMissingName++;
+          continue;
+        }
+        try{
+          const email=r["Email"] ?? r["E-mail"] ?? "";
+          const phone=r["Phone"] ?? r["Phone Number"] ?? "";
+          const lastAsked=parseDateFlexible(r["Last Asked"]);
+          const lastTaught=parseDateFlexible(r["Taught Date"]);
+          const willingRaw=(r["Willing to Teach Again?"] ?? r["Willing"] ?? "").toString().toLowerCase();
+          const willing=(/^(yes|true|y|1)$/.test(willingRaw)) ? true : (/^(no|false|n|0)$/.test(willingRaw) ? false : null);
+          const notes=r["Notes"] ?? "";
+          const tags=(r["Tags"]? String(r["Tags"]).split(",").map(s=>s.trim()).filter(Boolean):[]);
+          const id=keyFrom(name,email,phone);
+          const dref=doc(colTeachers(), id);
+          let existed=false;
+          try{
+            const snap=await getDoc(dref);
+            existed=snap.exists();
+          }catch{ existed=false; }
+          await setDoc(dref, {
+            name,email,phone,address:r["Address"] ?? "",
+            active:true,hasCalling:false,willingToTeachAgain:willing,
+            lastAsked:lastAsked||null,lastTaught:lastTaught||null,
+            attemptsSinceLastTaught:r["Attempts"]? Number(r["Attempts"])||0:0,
+            responseHistory:[],notes,tags
+          },{merge:true});
+          if(existed) summary.teachers.updated++; else summary.teachers.created++;
+          const variants=[r["Name"], r["PreferredName"], r["Full Name"]].map(v=>v? String(v).trim():"").filter(Boolean);
+          for(const variant of variants){
+            const norm=normalizeName(variant);
+            if(norm && !teacherNameLookup.has(norm)) teacherNameLookup.set(norm,id);
+          }
+        }catch(err){
+          summary.teachers.errors.push(`Row ${idx+1}: ${err?.message||err}`);
+        }
+      }
+
+      for(let idx=0; idx<scheduleSheet.length; idx++){
+        const r=scheduleSheet[idx];
+        summary.assignments.processed++;
+        const date=parseDateFlexible(r["Date"]);
+        if(!date){
+          summary.assignments.skippedMissingDate++;
+          continue;
+        }
+        try{
+          const iso=fmtDate(date);
+          const talkTitle=r["Talk Title"] ?? r["Title"] ?? "";
+          const talkSpeaker=r["Talk Speaker"] ?? r["Speaker"] ?? r["General Authority"] ?? "";
+          const teacherAssigned=(r["Teacher Assigned"] ?? "").toString().trim();
+          const teacherConfirmed=String(r["Teacher Confirmed?"] ?? "").toLowerCase().startsWith("y");
+          const status=teacherAssigned ? (teacherConfirmed ? "Confirmed" : "Asked") : "Unassigned";
+          const teacherNames=teacherAssigned ? [teacherAssigned] : [];
+          let teacherIds=[];
+          if(teacherAssigned){
+            const resolvedId=await getTeacherIdForName(teacherAssigned);
+            if(resolvedId) teacherIds=[resolvedId];
+          }
+          const dref=doc(colAssignments(), iso);
+          let existed=false;
+          try{
+            const snap=await getDoc(dref);
+            existed=snap.exists();
+          }catch{ existed=false; }
+          await setDoc(dref, {
+            date:iso,talkTitle,talkSpeaker,
+            teacherIds,
+            teacherNames,
+            status,askedAt:null,confirmedAt:null,notes:r["Notes"] ?? ""
+          }, {merge:true});
+          if(existed) summary.assignments.updated++; else summary.assignments.created++;
+        }catch(err){
+          summary.assignments.errors.push(`Row ${idx+1}: ${err?.message||err}`);
+        }
+      }
+    }catch(err){
+      summary.fatalError=err?.message || String(err);
+      const error=new Error(`Teacher Tracker import failed: ${summary.fatalError}`);
+      error.importType="teacherTracker";
+      error.summary=summary;
+      throw error;
     }
 
-    for(const r of teacherSheet){
-      const name=r["Name"] ?? r["PreferredName"] ?? r["Full Name"]; if(!name) continue;
-      const email=r["Email"] ?? r["E-mail"] ?? "";
-      const phone=r["Phone"] ?? r["Phone Number"] ?? "";
-      const lastAsked=parseDateFlexible(r["Last Asked"]);
-      const lastTaught=parseDateFlexible(r["Taught Date"]);
-      const willingRaw=(r["Willing to Teach Again?"] ?? r["Willing"] ?? "").toString().toLowerCase();
-      const willing=(/^(yes|true|y|1)$/.test(willingRaw)) ? true : (/^(no|false|n|0)$/.test(willingRaw) ? false : null);
-      const notes=r["Notes"] ?? "";
-      const tags=(r["Tags"]? String(r["Tags"]).split(",").map(s=>s.trim()).filter(Boolean):[]);
-      const id=keyFrom(name,email,phone);
-      await setDoc(doc(colTeachers(), id), {
-        name,email,phone,address:r["Address"] ?? "",
-        active:true,hasCalling:false,willingToTeachAgain:willing,
-        lastAsked:lastAsked||null,lastTaught:lastTaught||null,
-        attemptsSinceLastTaught:r["Attempts"]? Number(r["Attempts"])||0:0,
-        responseHistory:[],notes,tags
-      },{merge:true});
-      const variants=[r["Name"], r["PreferredName"], r["Full Name"]].map(v=>v? String(v).trim():"").filter(Boolean);
-      for(const variant of variants){
-        const norm=normalizeName(variant);
-        if(norm && !teacherNameLookup.has(norm)) teacherNameLookup.set(norm,id);
-      }
-      imported.teachers++;
-    }
-
-    for(const r of scheduleSheet){
-      const date=parseDateFlexible(r["Date"]); if(!date) continue;
-      const iso=fmtDate(date);
-      const talkTitle=r["Talk Title"] ?? r["Title"] ?? "";
-      const talkSpeaker=r["Talk Speaker"] ?? r["Speaker"] ?? r["General Authority"] ?? "";
-      const teacherAssigned=(r["Teacher Assigned"] ?? "").toString().trim();
-      const teacherConfirmed=String(r["Teacher Confirmed?"] ?? "").toLowerCase().startsWith("y");
-      const status=teacherAssigned ? (teacherConfirmed ? "Confirmed" : "Asked") : "Unassigned";
-      const teacherNames=teacherAssigned ? [teacherAssigned] : [];
-      let teacherIds=[];
-      if(teacherAssigned){
-        const resolvedId=await getTeacherIdForName(teacherAssigned);
-        if(resolvedId) teacherIds=[resolvedId];
-      }
-      await setDoc(doc(colAssignments(), iso), {
-        date:iso,talkTitle,talkSpeaker,
-        teacherIds,
-        teacherNames,
-        status,askedAt:null,confirmedAt:null,notes:r["Notes"] ?? ""
-      }, {merge:true});
-      imported.assignments++;
-    }
-
-    return imported;
+    return summary;
   }
   async function importRoster(obj){
-    const sheets=obj.sheets;
-    const any=sheets["Roster"] || sheets["Sheet2"] || sheets["Sheet1"] || [];
-    let imported=0;
-    for(const r of any){
-      const name=r["Name"] ?? r["PreferredName"] ?? r["Full Name"]; if(!name) continue;
-      const email=r["E-mail"] ?? r["Email"] ?? "";
-      const phone=r["Phone Number"] ?? r["Phone"] ?? "";
-      const id=keyFrom(name,email,phone);
-      await setDoc(doc(colTeachers(), id), { name,email,phone,address:r["Address"] ?? "", active:true }, {merge:true});
-      imported++;
+    if(!obj || !obj.sheets){ throw new Error("Roster workbook missing sheets."); }
+
+    const summary={
+      records:{processed:0,created:0,updated:0,skippedMissingName:0,errors:[]},
+      fatalError:null
+    };
+
+    try{
+      const sheets=obj.sheets;
+      const rows=sheets["Roster"] || sheets["Sheet2"] || sheets["Sheet1"] || [];
+      for(let idx=0; idx<rows.length; idx++){
+        const r=rows[idx];
+        summary.records.processed++;
+        const name=r["Name"] ?? r["PreferredName"] ?? r["Full Name"];
+        if(!name){
+          summary.records.skippedMissingName++;
+          continue;
+        }
+        try{
+          const email=r["E-mail"] ?? r["Email"] ?? "";
+          const phone=r["Phone Number"] ?? r["Phone"] ?? "";
+          const id=keyFrom(name,email,phone);
+          const dref=doc(colTeachers(), id);
+          let existed=false;
+          try{
+            const snap=await getDoc(dref);
+            existed=snap.exists();
+          }catch{ existed=false; }
+          await setDoc(dref, { name,email,phone,address:r["Address"] ?? "", active:true }, {merge:true});
+          if(existed) summary.records.updated++; else summary.records.created++;
+        }catch(err){
+          summary.records.errors.push(`Row ${idx+1}: ${err?.message||err}`);
+        }
+      }
+    }catch(err){
+      summary.fatalError=err?.message || String(err);
+      const error=new Error(`Roster import failed: ${summary.fatalError}`);
+      error.importType="roster";
+      error.summary=summary;
+      throw error;
     }
-    return {imported};
+
+    return summary;
+  }
+
+  const importControlSelectors=["#importBtn","#fixDupBtn","#exportBtn","#backupBtn","#nextLessonsTemplateBtn","#cleanNamelessBtn"];
+  const importControlEls=importControlSelectors.map(sel=>$(sel)).filter(Boolean);
+  const importButton=$("#importBtn");
+
+  function setImportLoading(isLoading){
+    importControlEls.forEach(el=>{
+      if(el) el.disabled=!!isLoading;
+    });
+    if(importButton){
+      importButton.classList.toggle("loading", !!isLoading);
+      if(isLoading){
+        if(!importButton.dataset.originalText){ importButton.dataset.originalText=importButton.textContent; }
+        importButton.textContent="Importing…";
+      }else if(importButton.dataset.originalText){
+        importButton.textContent=importButton.dataset.originalText;
+      }
+    }
+  }
+
+  function formatImportLog(label, summary){
+    if(!summary) return [];
+    const lines=[`${label} import summary:`];
+    if(summary.teachers && summary.assignments){
+      const t=summary.teachers;
+      const a=summary.assignments;
+      lines.push(`- Teacher rows: processed ${t.processed}, new ${t.created}, updated ${t.updated}, skipped ${t.skippedMissingName}.`);
+      if(t.errors.length){
+        lines.push("- Teacher row issues:");
+        t.errors.forEach(msg=> lines.push(`  • ${msg}`));
+      }
+      lines.push(`- Schedule rows: processed ${a.processed}, new ${a.created}, updated ${a.updated}, skipped ${a.skippedMissingDate}.`);
+      if(a.errors.length){
+        lines.push("- Schedule row issues:");
+        a.errors.forEach(msg=> lines.push(`  • ${msg}`));
+      }
+      if(summary.templateUpdated){
+        lines.push("- Message template updated from workbook.");
+      }
+      if(summary.templateErrors?.length){
+        lines.push("- Template errors:");
+        summary.templateErrors.forEach(msg=> lines.push(`  • ${msg}`));
+      }
+      if(summary.fatalError){
+        lines.push(`- Fatal error: ${summary.fatalError}`);
+      }
+    } else if(summary.records){
+      const r=summary.records;
+      lines.push(`- Records: processed ${r.processed}, new ${r.created}, updated ${r.updated}, skipped ${r.skippedMissingName}.`);
+      if(r.errors.length){
+        lines.push("- Row issues:");
+        r.errors.forEach(msg=> lines.push(`  • ${msg}`));
+      }
+      if(summary.fatalError){
+        lines.push(`- Fatal error: ${summary.fatalError}`);
+      }
+    }
+    return lines;
+  }
+
+  function summaryMutated(summary){
+    if(!summary) return false;
+    if(summary.teachers && summary.assignments){
+      return !!(summary.teachers.created || summary.teachers.updated || summary.assignments.created || summary.assignments.updated || summary.templateUpdated);
+    }
+    if(summary.records){
+      return !!(summary.records.created || summary.records.updated);
+    }
+    return false;
   }
 
   // Import/Export / Cleanup buttons
   $("#importBtn").addEventListener("click", async()=>{
     if(!currentUser) return alert("Sign in first.");
-    const ttF=$("#ttFile").files[0]; const roF=$("#rosterFile").files[0];
-    $("#importLog").textContent="Reading files...";
+    const logEl=$("#importLog");
+    const ttF=$("#ttFile").files[0];
+    const roF=$("#rosterFile").files[0];
+    if(!ttF && !roF){
+      logEl.textContent="Select at least one file to import.";
+      return;
+    }
+
+    const logLines=[];
+    const summaryBundle={teacherTracker:null, roster:null};
+    let shouldRefresh=false;
+
+    setImportLoading(true);
+    logEl.textContent="Import in progress…";
+
     try{
-      if(ttF){ const data=await readFile(ttF); const res=await importTT(data); $("#importLog").textContent="Imported Teacher Tracker: "+JSON.stringify(res); }
-      if(roF){ const data2=await readFile(roF); const res2=await importRoster(data2); $("#importLog").textContent += "\nImported Roster: "+JSON.stringify(res2); }
-      renderAll();
-    }catch(e){ $("#importLog").textContent="Import error: "+e.message; console.error(e); }
+      if(ttF){
+        logLines.push(`Reading ${ttF.name}…`);
+        const data=await readFile(ttF);
+        logLines.push("Processing Teacher Tracker workbook…");
+        const ttSummary=await importTT(data);
+        summaryBundle.teacherTracker=ttSummary;
+        shouldRefresh = shouldRefresh || summaryMutated(ttSummary);
+        logLines.push(...formatImportLog("Teacher Tracker", ttSummary));
+      }
+      if(roF){
+        logLines.push(`Reading ${roF.name}…`);
+        const data2=await readFile(roF);
+        logLines.push("Processing Roster workbook…");
+        const rosterSummary=await importRoster(data2);
+        summaryBundle.roster=rosterSummary;
+        shouldRefresh = shouldRefresh || summaryMutated(rosterSummary);
+        logLines.push(...formatImportLog("Roster", rosterSummary));
+      }
+      logEl.textContent=logLines.join("\n");
+    }catch(err){
+      const message=err?.message || String(err);
+      logLines.push(message);
+      if(err.summary && err.importType){
+        summaryBundle[err.importType]=err.summary;
+        shouldRefresh = shouldRefresh || summaryMutated(err.summary);
+        const label=err.importType==="teacherTracker"?"Teacher Tracker":"Roster";
+        logLines.push(...formatImportLog(label, err.summary));
+      }
+      logEl.textContent=logLines.join("\n");
+      console.error(err);
+    }finally{
+      setImportLoading(false);
+      if(summaryBundle.teacherTracker || summaryBundle.roster){
+        lastValidationSummary=summaryBundle;
+      }
+      renderStatusSummary(lastValidationSummary);
+      if(shouldRefresh){
+        renderAll();
+      }
+    }
   });
   $("#fixDupBtn").addEventListener("click", ()=> alert("Duplicates prevented via deterministic IDs."));
   $("#exportBtn").addEventListener("click", async()=>{
