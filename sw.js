@@ -1,9 +1,25 @@
-// sw.js  (v4)
-const CACHE = 'eqtt-v4';
+// sw.js  (v5)
+const CACHE = 'eqtt-v5';
+const PRECACHE_URLS = [
+  './',
+  'index.html',
+  'manifest.webmanifest',
+  'schedule_template.csv',
+  'teachers_template.csv',
+  'latest-backup.json'
+];
 
-// Activate new SW immediately
-self.addEventListener('install', (e) => {
-  self.skipWaiting();
+// Activate new SW immediately & precache core assets
+self.addEventListener('install', (event) => {
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE);
+    try {
+      await cache.addAll(PRECACHE_URLS);
+    } catch (err) {
+      console.warn('SW precache failed', err);
+    }
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (e) => {
