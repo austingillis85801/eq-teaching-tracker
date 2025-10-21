@@ -100,12 +100,12 @@
   <div class="wrap">
     <h1>EQ Teacher Tracker</h1>
     <div class="muted small">One teacher per lesson • 2nd & 4th Sundays • Retry after no response: 2 months • Ask cooldown: 2 months (with 6-month snooze)</div>
-    <nav id="tabs">
-      <button data-tab="nextup" class="active">Next Up</button>
-      <button data-tab="schedule">Schedule</button>
-      <button data-tab="directory">Directory</button>
-      <button data-tab="import">Import/Export</button>
-      <button data-tab="settings">Templates & Settings</button>
+    <nav id="tabs" role="tablist">
+      <button data-tab="nextup" class="active" role="tab" aria-selected="true" tabindex="0">Next Up</button>
+      <button data-tab="schedule" role="tab" aria-selected="false" tabindex="-1">Schedule</button>
+      <button data-tab="directory" role="tab" aria-selected="false" tabindex="-1">Directory</button>
+      <button data-tab="import" role="tab" aria-selected="false" tabindex="-1">Import/Export</button>
+      <button data-tab="settings" role="tab" aria-selected="false" tabindex="-1">Templates & Settings</button>
       <span style="flex:1"></span>
       <span id="userBadge" class="muted small hidden" style="align-self:center"></span>
       <button id="signUpBtn">Create account</button>
@@ -237,11 +237,11 @@
 </main>
 
 <!-- Teacher Picker Modal -->
-<div id="picker" class="overlay hidden">
+<div id="picker" class="overlay hidden" role="dialog" aria-modal="true" aria-labelledby="pickerTitle" aria-hidden="true">
   <div class="modal">
     <div class="hd">
-      <strong>Pick a teacher</strong>
-      <button class="btn" id="pickerClose">Close</button>
+      <strong id="pickerTitle">Pick a teacher</strong>
+      <button class="btn" id="pickerClose" type="button" aria-label="Close teacher picker">Close</button>
     </div>
     <div class="bd">
       <div class="row" style="margin-bottom:8px">
@@ -348,14 +348,46 @@
   }
 
   // Tabs
-  $$("#tabs button[data-tab]").forEach(b=>b.addEventListener("click",()=>{
-    $$("#tabs button").forEach(x=>x.classList.remove("active"));
-    b.classList.add("active");
-    const tab=b.dataset.tab;
-    $$("main section").forEach(s=>s.classList.remove("active"));
-    const target = $("#"+tab);
-    if(target) target.classList.add("active");
-  }));
+  const tabButtons = $$("#tabs button[data-tab]");
+  tabButtons.forEach(btn=>{
+    if(!btn.id){
+      btn.id = `tab-${btn.dataset.tab}`;
+    }
+    const panel = document.getElementById(btn.dataset.tab);
+    if(panel){
+      panel.setAttribute("role", "tabpanel");
+      panel.setAttribute("aria-labelledby", btn.id);
+      panel.setAttribute("aria-hidden", btn.classList.contains("active") ? "false" : "true");
+    }
+  });
+
+  function activateTab(tabId, focusTab=false){
+    tabButtons.forEach(btn=>{
+      const isActive = btn.dataset.tab === tabId;
+      btn.classList.toggle("active", isActive);
+      btn.setAttribute("aria-selected", String(isActive));
+      btn.setAttribute("tabindex", isActive ? "0" : "-1");
+      const panel = document.getElementById(btn.dataset.tab);
+      if(panel){
+        panel.classList.toggle("active", isActive);
+        panel.setAttribute("aria-hidden", isActive ? "false" : "true");
+      }
+      if(isActive && focusTab){
+        btn.focus({preventScroll:true});
+      }
+    });
+  }
+
+  tabButtons.forEach(btn=>{
+    btn.addEventListener("click", ()=>activateTab(btn.dataset.tab, true));
+  });
+
+  const initialActive = tabButtons.find(btn=>btn.classList.contains("active"));
+  if(initialActive){
+    activateTab(initialActive.dataset.tab);
+  } else if(tabButtons.length){
+    activateTab(tabButtons[0].dataset.tab);
+  }
 
   // Auth UI buttons
   $("#signInBtn").addEventListener("click", async ()=>{
@@ -1107,36 +1139,127 @@
   };
 
   // Picker
+  const pickerEl = document.getElementById("picker");
+  const pickerDateEl = document.getElementById("pickerDate");
+  const pickerSearchInput = document.getElementById("pickerSearch");
+  const pickerShowCallingToggle = document.getElementById("pickerShowCalling");
+  const pickerCloseBtn = document.getElementById("pickerClose");
+  const pickerFocusableSelector = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  let lastFocusedElement = null;
+
+  function getPickerFocusableElements(){
+    if(!pickerEl) return [];
+    return Array.from(pickerEl.querySelectorAll(pickerFocusableSelector)).filter(el=>{
+      if(!(el instanceof HTMLElement)) return false;
+      if(el.hasAttribute("disabled")) return false;
+      if(el.getAttribute("aria-hidden") === "true") return false;
+      const style = window.getComputedStyle(el);
+      return style.visibility !== "hidden" && style.display !== "none";
+    });
+  }
+
+  function focusFirstPickerElement(){
+    const focusTargets = getPickerFocusableElements();
+    if(!focusTargets.length) return;
+    const target = focusTargets[0];
+    try { target.focus({preventScroll:true}); }
+    catch(_) { target.focus(); }
+  }
+
+  function handlePickerKeydown(e){
+    if(!pickerEl || pickerEl.classList.contains("hidden")) return;
+    if(e.key === "Tab"){
+      const focusable = getPickerFocusableElements();
+      if(!focusable.length){
+        e.preventDefault();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement;
+      if(e.shiftKey){
+        if(active === first || !pickerEl.contains(active)){
+          e.preventDefault();
+          try { last.focus({preventScroll:true}); }
+          catch(_) { last.focus(); }
+        }
+      } else {
+        if(active === last){
+          e.preventDefault();
+          try { first.focus({preventScroll:true}); }
+          catch(_) { first.focus(); }
+        }
+      }
+    } else if(e.key === "Escape"){
+      e.preventDefault();
+      closeTeacherPicker();
+    }
+  }
+
+  function enforcePickerFocus(e){
+    if(!pickerEl || pickerEl.classList.contains("hidden")) return;
+    if(!pickerEl.contains(e.target)){
+      focusFirstPickerElement();
+    }
+  }
+
   window.openTeacherPicker = (assignmentId)=>{
+    if(!pickerEl) return;
     pickerState.assignmentId = assignmentId;
-    const el = document.getElementById("picker");
-    const dEl = document.getElementById("pickerDate");
+    lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    pickerEl.classList.remove("hidden");
+    pickerEl.removeAttribute("aria-hidden");
     (async ()=>{
       const aSnap = await getDoc(doc(colAssignments(), assignmentId));
       const a = aSnap.exists() ? aSnap.data() : {date:""};
       pickerState.dateIso = a.date || "";
-      dEl.textContent = a.date ? `Assigning for ${a.date}` : "";
+      if(pickerDateEl){
+        pickerDateEl.textContent = a.date ? `Assigning for ${a.date}` : "";
+      }
       pickerState.teachers = await fetchTeachers();
       renderPickerList();
-      el.classList.remove("hidden");
-      const ps = document.getElementById("pickerSearch");
-      setTimeout(()=> ps && ps.focus({preventScroll:true}), 150);
+      setTimeout(()=>{
+        if(pickerSearchInput){
+          try { pickerSearchInput.focus({preventScroll:true}); }
+          catch(_) { pickerSearchInput.focus(); }
+        } else {
+          focusFirstPickerElement();
+        }
+      }, 150);
     })();
   };
 
   let pickerState = { assignmentId: null, dateIso: null, teachers: [] };
   function closeTeacherPicker(){
-    document.getElementById("picker").classList.add("hidden");
+    if(!pickerEl) return;
+    pickerEl.classList.add("hidden");
+    pickerEl.setAttribute("aria-hidden", "true");
     pickerState = { assignmentId: null, dateIso: null, teachers: [] };
+    const focusReturn = lastFocusedElement;
+    lastFocusedElement = null;
+    if(focusReturn && typeof focusReturn.focus === "function"){
+      try { focusReturn.focus({preventScroll:true}); }
+      catch(_) { focusReturn.focus(); }
+    }
   }
-  document.getElementById("pickerClose").addEventListener("click", closeTeacherPicker);
-  document.getElementById("pickerSearch").addEventListener("input", renderPickerList);
-  document.getElementById("pickerShowCalling").addEventListener("change", renderPickerList);
-  window.addEventListener("keydown", (e)=>{ if(e.key==="Escape") closeTeacherPicker(); });
+
+  if(pickerCloseBtn){
+    pickerCloseBtn.addEventListener("click", closeTeacherPicker);
+  }
+  if(pickerSearchInput){
+    pickerSearchInput.addEventListener("input", renderPickerList);
+  }
+  if(pickerShowCallingToggle){
+    pickerShowCallingToggle.addEventListener("change", renderPickerList);
+  }
+  if(pickerEl){
+    pickerEl.addEventListener("keydown", handlePickerKeydown);
+  }
+  document.addEventListener("focusin", enforcePickerFocus);
 
   function renderPickerList(){
-    const q = document.getElementById("pickerSearch").value.trim().toLowerCase();
-    const showCalling = document.getElementById("pickerShowCalling").checked;
+    const q = (pickerSearchInput?.value || "").trim().toLowerCase();
+    const showCalling = !!(pickerShowCallingToggle && pickerShowCallingToggle.checked);
     const list = document.getElementById("pickerList");
     const arr = pickerState.teachers.filter(t=>{
       if(!t || !t.name || !String(t.name).trim()) return false;
