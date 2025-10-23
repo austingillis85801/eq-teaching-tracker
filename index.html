@@ -213,6 +213,7 @@
           <button class="btn" id="importBtn">Import</button>
           <button class="btn" id="fixDupBtn">Fix Duplicates</button>
           <button class="btn" id="exportBtn">Export CSV</button>
+          <button class="btn" id="exportUpcomingBtn">Export Upcoming Lessons</button>
           <button class="btn" id="backupBtn">Backup JSON</button>
           <button class="btn" id="nextLessonsTemplateBtn">Download Next Lessons Template</button>
           <button class="btn" id="cleanNamelessBtn">Remove “(No name)”</button>
@@ -464,7 +465,7 @@
     textTemplate:"Hey brother {LastName}, this is Austin Gillis from elders quorum. Would you be willing to lead the next elders meeting discussion on {NextTeachSundayPretty}? The presidency has prayed and know you would do amazing if you’re willing."
   };
   const importState={inProgress:false,lastResult:null,error:null};
-  const importControlSelectors=['#importBtn','#ttFile','#rosterFile','#fixDupBtn','#exportBtn','#backupBtn','#nextLessonsTemplateBtn','#cleanNamelessBtn'];
+  const importControlSelectors=['#importBtn','#ttFile','#rosterFile','#fixDupBtn','#exportBtn','#exportUpcomingBtn','#backupBtn','#nextLessonsTemplateBtn','#cleanNamelessBtn'];
   function setImportControlsDisabled(disabled){
     importControlSelectors.forEach((sel)=>{
       const el=$(sel);
@@ -1047,6 +1048,65 @@
     const blob=new Blob([csv],{type:"text/csv"});
     const a=document.createElement("a");
     a.href=URL.createObjectURL(blob); a.download="teachers_export.csv"; a.click();
+  });
+  $("#exportUpcomingBtn").addEventListener("click", async()=>{
+    if(!currentUser) return alert("Sign in first.");
+    const [teachers, assignments]=await Promise.all([fetchTeachers(), fetchAssignments()]);
+    const tMap=new Map((teachers||[]).map(t=>[t.id,t]));
+    const today=new Date();
+    const todayMid=new Date(today.getFullYear(), today.getMonth(), today.getDate(), 12,0,0,0);
+    const upcomingRows=(assignments||[])
+      .map(a=>{
+        const lessonDate=a?.date ? new Date(`${a.date}T12:00:00`) : null;
+        return {assignment:a, lessonDate};
+      })
+      .filter(item=>{
+        const {lessonDate}=item;
+        if(!(lessonDate instanceof Date) || Number.isNaN(lessonDate.valueOf())) return false;
+        return lessonDate >= todayMid;
+      })
+      .map(item=>{
+        const a=item.assignment||{};
+        const namesFromIds=(a.teacherIds||[]).map(id=>{
+          const raw=tMap.get(id)?.name;
+          const clean=raw && String(raw).trim();
+          return clean || String(id||"").trim();
+        }).filter(Boolean);
+        const fallbackNames=(a.teacherNames||[]).map(n=> String(n||"").trim()).filter(Boolean);
+        const assignedNames=namesFromIds.length ? namesFromIds : fallbackNames;
+        const pendingFromIds=(a.pendingTeacherIds||[]).map(id=>{
+          const raw=tMap.get(id)?.name;
+          const clean=raw && String(raw).trim();
+          return clean || String(id||"").trim();
+        });
+        const pendingNamesRaw=[...new Set([...(pendingFromIds||[]), ...((a.pendingTeacherNames||[]).map(n=> String(n||"").trim()))])];
+        const pendingNames=pendingNamesRaw.map(n=> String(n||"").trim()).filter(Boolean);
+        return {
+          Date:a.date||"",
+          "Talk Title":String(a.talkTitle||"").trim(),
+          "Talk Speaker":String(a.talkSpeaker||"").trim(),
+          Status:a.status||"Unassigned",
+          "Assigned Teachers":assignedNames.join(", "),
+          "Pending Teachers":pendingNames.join(", ")
+        };
+      });
+    if(!upcomingRows.length){
+      $("#importLog").textContent="No upcoming lessons to export.";
+      alert("No upcoming lessons found to export.");
+      return;
+    }
+    const columns=["Date","Talk Title","Talk Speaker","Status","Assigned Teachers","Pending Teachers"];
+    const worksheet=XLSX.utils.json_to_sheet(upcomingRows,{header:columns});
+    const workbook=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Upcoming Lessons");
+    const wbout=XLSX.write(workbook,{bookType:"xlsx",type:"array"});
+    const blob=new Blob([wbout],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+    const a=document.createElement("a");
+    a.href=URL.createObjectURL(blob);
+    a.download="upcoming_lessons.xlsx";
+    a.click();
+    const count=upcomingRows.length;
+    $("#importLog").textContent=`Exported ${count} upcoming lesson${count===1?"":"s"}.`;
   });
   $("#backupBtn").addEventListener("click", async()=>{
     if(!currentUser) return alert("Sign in first.");
